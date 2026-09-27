@@ -79,22 +79,25 @@ client.on('interactionCreate', async interaction => {
         const { commandName, options } = interaction;
 
         if (commandName === 'stream' || commandName === 'programme') {
-            const current = options.getFocused();
+            const current = options.getFocused() ?? '';
             const channelEntries = await getChannelEntries();
-            const choices = channelEntries.map(entry => entry.tvg_name).filter((name): name is string => name !== undefined && name.toLowerCase().includes(current.toLowerCase()));
+            const choices = channelEntries
+                .map(entry => entry.tvg_name)
+                .filter((name): name is string => name !== undefined && name.toLowerCase().includes(current.toLowerCase()));
 
-            const chunks = [];
-            for (let i = 0; i < choices.length; i += 25) {
-                chunks.push(choices.slice(i, i + 25));
-            }
-
-            if (chunks[0]) {
-                await interaction.respond(chunks[0].map(choice => ({ name: choice!, value: choice! })));
-            }
+            // Discord allows at most 25 autocomplete choices and caps names at
+            // 100 characters. Always respond (even when empty) so the client
+            // does not time out waiting for the interaction to be acknowledged.
+            await interaction.respond(
+                choices.slice(0, 25).map(choice => ({
+                    name: choice.slice(0, 100),
+                    value: choice.slice(0, 100)
+                }))
+            );
         }
     }
 });
 
-client.login(config.DISCORD_BOT_TOKEN).catch(err => {
-    logger.error(`Error logging in: ${err}`);
+client.on('error', error => {
+    logger.error(`Discord client error: ${error}`);
 });
