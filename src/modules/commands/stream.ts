@@ -2,8 +2,8 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteracti
 import { getLogger } from '../../utils/logger';
 import { config } from '../../utils/config';
 import { getChannelEntries, getProgrammeEntries } from '../../modules/database';
-import { getVoiceConnection } from '@discordjs/voice';
-import { initializeStreamer, joinVoiceChannel, startStreaming, stopStreaming } from '../../modules/streaming';
+import { findChannelBySanitizedId } from '../../utils/channels';
+import { initializeStreamer, joinVoiceChannel, startStreaming } from '../../modules/streaming';
 import { generateProgrammeInfo } from './programme';
 import { executeStopStream } from './stop';
 import { createStreamEmbed } from '../embeds';
@@ -52,14 +52,12 @@ export async function executeStreamChannel(
             await initializeStreamer();
             await new Promise(resolve => setTimeout(resolve, 750));
 
-            const connection = getVoiceConnection(config.GUILD);
-            if (connection && connection.joinConfig.channelId === voiceChannelId) {
-                logger.debug('Already connected to the desired voice channel');
-            } else {
-                logger.info('Joining voice channel...');
-                await joinVoiceChannel(config.GUILD, voiceChannelId);
-                await new Promise(resolve => setTimeout(resolve, 750));
+            logger.info('Joining voice channel...');
+            const joined = await joinVoiceChannel(config.GUILD, voiceChannelId);
+            if (!joined) {
+                return { success: false, message: 'Failed to join the voice channel. Please try again.' };
             }
+            await new Promise(resolve => setTimeout(resolve, 750));
 
             const allProgrammes = await getProgrammeEntries();
             const channelProgrammes = allProgrammes.filter(p => p.channel === channel.tvg_id);
@@ -124,9 +122,20 @@ export async function executeStreamChannel(
                                 ephemeral: false
                             });
                         } else if (i.customId.startsWith('play_channel_')) {
-                            const playChannelName = i.customId.replace('play_channel_', '');
+                            const sanitizedId = i.customId.replace('play_channel_', '');
+                            const channels = await getChannelEntries();
+                            const channel = findChannelBySanitizedId(channels, sanitizedId);
+
+                            if (!channel?.tvg_name) {
+                                await i.followUp({
+                                    content: 'Could not find the selected channel. Please try again.',
+                                    flags: MessageFlags.Ephemeral
+                                });
+                                return;
+                            }
+
                             // Pass the current button interaction to maintain the interaction chain
-                            const playResult = await executeStreamChannel(playChannelName, voiceChannelId);
+                            const playResult = await executeStreamChannel(channel.tvg_name, voiceChannelId);
 
                             if (playResult.success) {
                                 await i.followUp({
