@@ -97,7 +97,9 @@ must pass. Also run `npx tsc -p tsconfig.test.json` when touching tests.
 2. `downloadCacheAndFillDb()` — downloads/caches IPTV data and populates the DB.
 3. `client.login(...)` — logs in the discord.js bot client.
 4. `SIGINT`/`SIGTERM` trigger a graceful shutdown (stops the IPTV refresh
-   scheduler, logs out the streamer, destroys the Discord client).
+   scheduler, disconnects the streamer **without logging it out**, destroys the
+   Discord client). Never call `Client#logout()` on the self-bot: it revokes the
+   user token. Use `shutdownStreamer()` (which calls `destroy()`).
 
 `dotenv` is loaded as the first import of `src/utils/logger.ts`, so `.env` is
 read before `config` or any other module inspects `process.env`. Keep that

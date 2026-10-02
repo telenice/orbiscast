@@ -55,9 +55,13 @@ export async function initializeStreamer() {
 }
 
 /**
- * Logs out the streamer client if currently logged in
+ * Disconnects the streamer client without invalidating the user token.
+ *
+ * `Client#logout()` calls Discord's logout endpoint, which revokes the user
+ * token and forces the account to log in again. `Client#destroy()` only closes
+ * the gateway connection, which is what we want on shutdown.
  */
-export async function logoutStreamer() {
+export async function shutdownStreamer() {
     if (!streamer.client.isReady()) {
         logger.debug('Streamer client is not logged in');
         return;
@@ -67,10 +71,10 @@ export async function logoutStreamer() {
         if (streamer.voiceConnection) {
             streamer.leaveVoice();
         }
-        await (streamer.client as Client).logout();
-        logger.info('Streamer client logged out successfully');
+        streamer.client.destroy();
+        logger.info('Streamer client disconnected');
     } catch (error) {
-        logger.error(`Error logging out streamer client: ${error}`);
+        logger.error(`Error disconnecting streamer client: ${error}`);
     }
 }
 
