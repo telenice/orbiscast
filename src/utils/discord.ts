@@ -14,7 +14,7 @@ export const client = new Client({
     partials: [Partials.Channel],
 });
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     logger.info(`OrbisCast connected as ${client.user?.tag}`);
     logger.info(`Attempting to connect to GUILD ID: ${config.GUILD}`);
 

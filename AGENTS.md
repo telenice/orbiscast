@@ -169,6 +169,11 @@ See `.env.example` and the README table. Required: `PLAYLIST`,
 
 ## Known upstream issues
 
+- `tsx` (used by `npm start` / `npm run dev`) cannot resolve
+  `unicorn-magic@0.3.0` because its conditional exports are import-only. Plain
+  Node and the compiled `dist` build are unaffected. `package.json` overrides
+  `unicorn-magic` to `^0.4.1` (same `toPath`/`traversePathUp` API, proper
+  `default` conditions); keep that override until `npm-run-path` updates.
 - `npm audit` reports high-severity issues in the transitive `ip` package
   (`ip` <- `werift` <- `node-av` <- `@dank074/discord-video-stream`). There is no
   non-breaking fix upstream yet; `npm audit fix --force` would downgrade the
