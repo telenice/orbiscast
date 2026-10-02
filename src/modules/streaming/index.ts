@@ -146,7 +146,8 @@ export async function joinVoiceChannel(guildId: string, channelId: string): Prom
         if (conn.ready) {
             logger.info(`Connected to voice channel: ${channel.name} in guild: ${guild.name}`);
         } else {
-            logger.warn(`Connected to voice channel: ${channel.name} in guild: ${guild.name}, but WebRTC is not ready yet`);
+            logger.info(`Connected to voice channel: ${channel.name} in guild: ${guild.name}`);
+            logger.debug('WebRTC connection is still settling after the voice join');
         }
 
         return true;
