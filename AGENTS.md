@@ -187,5 +187,6 @@ See `.env.example` and the README table. Required: `PLAYLIST`,
 
 - Branch from `master`, keep commits scoped and descriptive.
 - CI (`.github/workflows/ci.yml`) runs typecheck and tests on pushes/PRs.
-- The `dev` and `master` workflows build/publish Docker images; `master`
-  publishes on GitHub release.
+- `.github/workflows/master.yml` builds and publishes the Docker image
+  (`zbejas/orbiscast:latest` plus the release tag) when a GitHub release is
+  published.
