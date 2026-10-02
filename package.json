@@ -2,30 +2,36 @@
   "name": "orbiscast",
   "version": "1.2.0",
   "description": "Orbiscast project",
-  "main": "index.js",
-  "module": "index.ts",
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start:prod": "node dist/index.js"
+    "start:prod": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "engines": {
+    "node": ">=22.4.0"
+  },
+  "overrides": {
+    "unicorn-magic": "^0.4.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.5",
+    "@types/node": "^22.20.4",
     "@types/xml2js": "^0.4.14",
-    "tsx": "^4.19.2",
-    "typescript": "^5.8.2"
-  },
-  "peerDependencies": {
-    "typescript": "^5.9.3"
+    "@vitest/coverage-v8": "^5.0.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
   },
   "dependencies": {
-    "@dank074/discord-video-stream": "^5.0.2",
-    "@discordjs/voice": "^0.18.0",
-    "axios": "^1.13.2",
-    "discord.js": "^14.25.1",
-    "discord.js-selfbot-v13": "^3.7.1",
-    "dotenv": "^16.6.1",
+    "@dank074/discord-video-stream": "^7.0.0",
+    "@lng2004/discord.js-selfbot-v13": "^3.7.2",
+    "axios": "^1.20.0",
+    "discord.js": "^14.27.0",
+    "dotenv": "^18.0.4",
     "lowdb": "^7.0.1",
     "winston": "^3.19.0",
     "xml2js": "^0.6.2"

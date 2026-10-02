@@ -2,6 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonInteraction, ButtonStyle, ChatIn
 import { getLogger } from '../../utils/logger';
 import { getChannelEntries, getProgrammeEntries } from '../../modules/database';
 import type { ChannelEntry, ProgrammeEntry } from '../../interfaces/iptv';
+import { findChannelBySanitizedId, sanitizeChannelId } from '../../utils/channels';
 import { getCurrentChannelEntry } from '../streaming';
 import { ProgrammeEmbedProcessor } from '../embeds/programme';
 
@@ -122,7 +123,7 @@ export async function generateProgrammeList(pageOption: number = 1): Promise<{
 
                 // Sanitize the channel name for use in custom ID
                 // Discord has a 100 character limit on custom IDs
-                const safeChannelName = channel.tvg_name.replace(/[^\w-]/g, '_').slice(0, 80);
+                const safeChannelName = sanitizeChannelId(channel.tvg_name);
 
                 //logger.debug(`Creating button with ID: view_programme_${safeChannelName} for channel: ${channel.tvg_name}`);
 
@@ -171,10 +172,7 @@ export async function handleProgrammeListButtonInteraction(interaction: ButtonIn
 
             // Find the actual channel by comparing sanitized names
             const channels = await getChannelEntries();
-            const channel = channels.find(ch => {
-                const sanitized = ch.tvg_name?.replace(/[^\w-]/g, '_').slice(0, 80);
-                return sanitized === encodedChannelName;
-            });
+            const channel = findChannelBySanitizedId(channels, encodedChannelName);
 
             if (!channel || !channel.tvg_name) {
                 logger.error(`Could not find channel for encoded name: ${encodedChannelName}`);

@@ -2,7 +2,7 @@ import { config } from './utils/config';
 import { downloadCacheAndFillDb, stopIPTVRefresh } from './modules/iptv';
 import { getLogger } from './utils/logger';
 import { client } from './utils/discord';
-import { initializeStreamer } from './modules/streaming';
+import { initializeStreamer, shutdownStreamer } from './modules/streaming';
 
 const logger = getLogger();
 
@@ -29,6 +29,7 @@ async function gracefulShutdown(signal: string) {
     logger.info(`Received ${signal}. Shutting down gracefully...`);
     try {
         stopIPTVRefresh();
+        await shutdownStreamer();
         if (client.isReady()) {
             await client.destroy();
         }

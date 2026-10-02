@@ -1,16 +1,46 @@
-import { Client } from "discord.js-selfbot-v13";
-import { Streamer } from '@dank074/discord-video-stream';
-import { prepareStream, playStream, Utils } from "@dank074/discord-video-stream";
+import { Client } from '@lng2004/discord.js-selfbot-v13';
+import { Streamer, prepareStream, playStream, Utils, Encoders } from '@dank074/discord-video-stream';
 import { getLogger } from '../../utils/logger';
 import { config } from '../../utils/config';
 import type { ChannelEntry } from '../../interfaces/iptv';
 
 const logger = getLogger();
-let streamer = new Streamer(new Client());
+const streamer = new Streamer(new Client());
 let abortController = new AbortController();
 let currentChannelEntry: ChannelEntry | null = null;
 let streamSpectatorMonitor: ReturnType<typeof setInterval> | null = null;
-let streamAloneTime: number = 0;
+let streamAloneTime = 0;
+
+/**
+ * How long to wait for the Discord voice handshake before giving up.
+ * Without this, a stuck handshake (e.g. a voice gateway that never sends
+ * READY) leaves the slash command hanging on "orbiscast is thinking..." forever.
+ */
+const JOIN_VOICE_TIMEOUT_MS = 20_000;
+
+/**
+ * Rejects if the provided promise does not settle within the timeout.
+ *
+ * @param promise - Promise to wait for
+ * @param timeoutMs - Maximum time to wait in milliseconds
+ * @param message - Error message used when the timeout is reached
+ * @returns The resolved value of the wrapped promise
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+        promise.then(
+            value => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            error => {
+                clearTimeout(timer);
+                reject(error);
+            }
+        );
+    });
+}
 
 /**
  * Initializes the streaming client
@@ -25,15 +55,27 @@ export async function initializeStreamer() {
 }
 
 /**
- * Logs out the streamer client if currently logged in
+ * Disconnects the streamer client without invalidating the user token.
+ *
+ * `Client#logout()` calls Discord's logout endpoint, which revokes the user
+ * token and forces the account to log in again. `Client#destroy()` only closes
+ * the gateway connection, which is what we want on shutdown.
  */
-async function logoutStreamer() {
+export async function shutdownStreamer() {
     if (!streamer.client.isReady()) {
         logger.debug('Streamer client is not logged in');
         return;
     }
-    await (streamer.client as Client).logout();
-    logger.info('Streamer client logged out successfully');
+
+    try {
+        if (streamer.voiceConnection) {
+            streamer.leaveVoice();
+        }
+        streamer.client.destroy();
+        logger.info('Streamer client disconnected');
+    } catch (error) {
+        logger.error(`Error disconnecting streamer client: ${error}`);
+    }
 }
 
 /**
@@ -50,7 +92,7 @@ async function loginStreamer() {
 
 /**
  * Gets the current streaming channel entry.
- * 
+ *
  * @returns Channel entry object or null if not streaming
  */
 export function getCurrentChannelEntry(): ChannelEntry | null {
@@ -58,14 +100,19 @@ export function getCurrentChannelEntry(): ChannelEntry | null {
 }
 
 /**
- * Joins a voice channel in the specified guild
+ * Joins a voice channel in the specified guild.
+ *
+ * Handles switching between channels and never waits forever on a stuck
+ * handshake.
+ *
  * @param guildId - Discord guild ID
  * @param channelId - Voice channel ID to join
+ * @returns True when the streamer is connected to the requested channel
  */
-export async function joinVoiceChannel(guildId: string, channelId: string) {
+export async function joinVoiceChannel(guildId: string, channelId: string): Promise<boolean> {
     if (!streamer.client.isReady()) {
         logger.error('Streamer client is not logged in.');
-        return;
+        return false;
     }
 
     const guild = streamer.client.guilds.cache.get(guildId);
@@ -73,23 +120,46 @@ export async function joinVoiceChannel(guildId: string, channelId: string) {
 
     if (!guild || !channel || !channel.isVoice()) {
         logger.error('Invalid guild or channel ID.');
-        return;
+        return false;
     }
 
     const connection = streamer.voiceConnection;
     if (connection && connection.channelId === channelId) {
         logger.debug(`Already connected to voice channel: ${channel.name} in guild: ${guild.name}`);
-        return;
+        return true;
     }
+
+    // Leave any existing connection first so the voice gateway does not mix
+    // up session/token updates between the old and the new channel.
+    if (connection) {
+        logger.debug(`Switching voice channel, leaving ${connection.channelId} first`);
+        streamer.leaveVoice();
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
     try {
-        let response = await streamer.joinVoice(guildId, channelId);
-        if (response.ready) {
+        const conn = await withTimeout(
+            streamer.joinVoice(guildId, channelId),
+            JOIN_VOICE_TIMEOUT_MS,
+            `Timed out joining voice channel: ${channel.name} in guild: ${guild.name}`
+        );
+
+        // `joinVoice` resolves once the media connection is ready. The `ready`
+        // getter reflects the WebRTC state, which may still be settling, so a
+        // resolved connection is treated as success regardless.
+        if (conn.ready) {
             logger.info(`Connected to voice channel: ${channel.name} in guild: ${guild.name}`);
         } else {
-            logger.error(`Failed to connect to voice channel: ${channel.name} in guild: ${guild.name}`);
+            logger.info(`Connected to voice channel: ${channel.name} in guild: ${guild.name}`);
+            logger.debug('WebRTC connection is still settling after the voice join');
         }
+
+        return true;
     } catch (error) {
         logger.error(`Error joining voice channel: ${error}`);
+        // Make sure no half-open connection is left behind.
+        streamer.leaveVoice();
+        return false;
     }
 }
 
@@ -119,7 +189,7 @@ export async function leaveVoiceChannel() {
 /**
  * Starts monitoring spectators in the voice channel.
  * Automatically stops the stream if there are no viewers for a specified time.
- * 
+ *
  * @returns Cleanup function to stop monitoring
  */
 function startSpectatorMonitoring(): () => void {
@@ -189,46 +259,51 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         return;
     }
 
+    let signal = abortController.signal;
+
     try {
         logger.info(`Stopping any possible existing stream.`);
         await stopStreaming();
 
+        // Capture the signal for this playback run. `stopStreaming` swaps in a
+        // fresh controller, so checking the module-level one later could race.
+        signal = abortController.signal;
+
         logger.info(`Attempting to stream: ${channelEntry.url}`);
 
-        // Calculate buffer size as 3x the video bitrate for smooth livestreaming
-        const bufferSize = config.BITRATE_VIDEO * 3;
+        const encoder = Encoders.software({
+            x264: { preset: 'veryfast' },
+            x265: { preset: 'veryfast' },
+        });
 
-        const { command, output } = prepareStream(channelEntry.url, {
+        const { command, output, promise } = prepareStream(channelEntry.url, {
             noTranscoding: config.DISABLE_TRANSCODE,
             minimizeLatency: config.MINIMIZE_LATENCY,
             bitrateVideo: config.BITRATE_VIDEO,
             bitrateVideoMax: config.BITRATE_VIDEO_MAX,
-            videoCodec: Utils.normalizeVideoCodec("H264"),
-            h26xPreset: "veryfast",
-            customFfmpegFlags: [
-                '-reconnect', '1',
-                '-reconnect_streamed', '1',
-                '-reconnect_delay_max', '5',
-                '-buffer_size', `${bufferSize}k`,
-                '-max_delay', '500000'
-            ],
-        }, abortController.signal);
+            videoCodec: Utils.normalizeVideoCodec('H264'),
+            encoder,
+        }, signal);
 
         currentChannelEntry = channelEntry;
 
-        command.on("error", async (err: any, _stdout: any, _stderr: any) => {
-            if (!err.toString().includes('ffmpeg exited with code 255')) {
-                logger.error(`FFmpeg ${err}`);
-                await stopStreaming();
+        // The FFmpeg promise rejects when the process is cancelled or exits
+        // with an error. Handle it here so it never becomes an unhandled
+        // rejection; actual playback is driven by `playStream` below.
+        promise.catch((err: unknown) => {
+            if (!signal.aborted) {
+                logger.error(`FFmpeg process error: ${err}`);
             }
         });
 
-        command.on("end", async (stdout: string | null, stderr: string | null) => {
-            logger.debug(`FFmpeg process ended`);
-            if (stderr) {
-                logger.error(`FFmpeg stderr: ${stderr}`);
+        command.on('error', (err: unknown) => {
+            if (!signal.aborted) {
+                logger.error(`FFmpeg ${err}`);
             }
-            await stopStreaming();
+        });
+
+        command.on('end', () => {
+            logger.debug('FFmpeg process ended');
         });
 
         logger.info(`Streaming channel: ${channelEntry.tvg_name}.`);
@@ -237,16 +312,19 @@ export async function startStreaming(channelEntry: ChannelEntry) {
 
         try {
             await playStream(output, streamer, {
-                type: "go-live",
-                //readrateInitialBurst: 1000000,
-            }, abortController.signal);
+                type: 'go-live',
+            }, signal);
         } finally {
             // Always cleanup monitoring regardless of success or failure
             cleanupMonitoring();
         }
     } catch (error) {
-        logger.error(`Error starting stream: ${error}`);
-        await stopStreaming();
+        // A cancelled stream is expected during stop; the caller is already
+        // cleaning up, so only log/handle genuine failures.
+        if (!signal.aborted) {
+            logger.error(`Error starting stream: ${error}`);
+            await stopStreaming();
+        }
     }
 }
 
@@ -254,11 +332,6 @@ export async function startStreaming(channelEntry: ChannelEntry) {
  * Stops the current stream and cleans up resources
  */
 export async function stopStreaming() {
-    if (!streamer.client.isReady()) {
-        logger.error('Streamer client is not logged in');
-        return;
-    }
-
     try {
         abortController.abort();
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -282,4 +355,3 @@ export async function stopStreaming() {
         logger.error(`Error stopping stream: ${error}`);
     }
 }
-

@@ -1,3 +1,6 @@
+// Load .env before anything else reads process.env. This module is imported
+// by config.ts and every other module, so it is the earliest safe hook.
+import 'dotenv/config';
 import { join } from 'path';
 import { promises as fs } from 'fs';
 import { createLogger, format, transports } from 'winston';

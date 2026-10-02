@@ -1,6 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonInteraction, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, GuildMember, MessageFlags, ComponentType } from 'discord.js';
 import { getLogger } from '../../utils/logger';
 import { getChannelEntries } from '../../modules/database';
+import { findChannelBySanitizedId, sanitizeChannelId } from '../../utils/channels';
 import { executeStreamChannel } from './stream';
 import { executeStopStream } from './stop';
 
@@ -106,8 +107,8 @@ export async function generateChannelList(pageOption: string | number | undefine
             if (channel.tvg_name) {
                 buttonRow.addComponents(
                     new ButtonBuilder()
-                        .setCustomId(`play_channel_${channel.tvg_name}`)
-                        .setLabel(`▶️ ${channel.tvg_name}`)
+                        .setCustomId(`play_channel_${sanitizeChannelId(channel.tvg_name)}`)
+                        .setLabel(`▶️ ${channel.tvg_name}`.slice(0, 80))
                         .setStyle(ButtonStyle.Success)
                 );
             }
@@ -291,8 +292,19 @@ export async function handleButtonInteraction(interaction: ButtonInteraction) {
         }
 
         if (interaction.customId.startsWith('play_channel_')) {
-            const channelName = interaction.customId.replace('play_channel_', '');
-            await handlePlayChannelButton(interaction, channelName);
+            const sanitizedId = interaction.customId.replace('play_channel_', '');
+            const channels = await getChannelEntries();
+            const channel = findChannelBySanitizedId(channels, sanitizedId);
+
+            if (!channel?.tvg_name) {
+                await interaction.followUp({
+                    content: 'Could not find the selected channel. Please try again.',
+                    flags: MessageFlags.Ephemeral
+                });
+                return;
+            }
+
+            await handlePlayChannelButton(interaction, channel.tvg_name);
         } else if (interaction.customId === 'stop_stream') {
             await handleStopStreamButton(interaction);
         } else if (interaction.customId.startsWith('channel_list_prev_') || interaction.customId.startsWith('channel_list_next_')) {

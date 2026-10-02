@@ -81,7 +81,7 @@ You can check the available tags on the [Docker Hub page](https://hub.docker.com
 ### Manual
 
 > [!IMPORTANT]
-> The following instructions are for running the bot manually. If you are using Docker, you can skip this section. [Node.js](https://nodejs.org/) v22 or higher is required.
+> The following instructions are for running the bot manually. If you are using Docker, you can skip this section. [Node.js](https://nodejs.org/) v22.4 or higher is required, together with a working [FFmpeg](https://ffmpeg.org/) installation on your `PATH`.
 
 The project can also be run manually. To do so, first download the project and install the dependencies:
 
@@ -109,6 +109,24 @@ Or run directly with TypeScript:
 ```bash
 npm start
 ```
+
+### Development
+
+Run the type checker and the test suite before opening a pull request:
+
+```bash
+npm run typecheck
+npm test
+```
+
+Other useful scripts:
+
+```bash
+npm run test:watch    # re-run tests on change
+npm run test:coverage # tests with coverage
+```
+
+See [AGENTS.md](AGENTS.md) for more detail on the project architecture.
 
 ## Environment Variables
 
@@ -150,7 +168,7 @@ The bot can be controlled using the following commands:
 
 | Command | Description |
 |---------|-------------|
-| `/stream <channe>` | Start streaming the specified channel. |
+| `/stream <channel>` | Start streaming the specified channel. |
 | `/programme <channel>` | Show the current programme for the specified channel. |
 | `/channels <page>` | List all available channels. Page is optional. |
 | `/stop` | Stop the current stream. |

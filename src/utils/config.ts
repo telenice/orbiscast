@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import { getLogger } from './logger';
 
 const logger = getLogger();
@@ -30,8 +31,19 @@ class Config {
         this.DEFAULT_STREAM_TIMEOUT = parseInt(env.DEFAULT_STREAM_TIMEOUT?.trim() || '10');
 
         // Cache configuration
-        this.RAM_CACHE = env.RAM_CACHE?.trim().toLowerCase() !== 'false' || false;
-        this.CACHE_DIR = (this.RAM_CACHE ? '/dev/shm/orbiscast' : env.CACHE_DIR?.trim()) || '../cache';
+        // RAM cache uses /dev/shm, which only exists on Linux. On other
+        // platforms (or when /dev/shm is unavailable) fall back to disk.
+        const ramCacheRequested = env.RAM_CACHE?.trim().toLowerCase() !== 'false';
+        const ramCacheAvailable = existsSync('/dev/shm');
+        this.RAM_CACHE = ramCacheRequested && ramCacheAvailable;
+        if (this.RAM_CACHE) {
+            this.CACHE_DIR = '/dev/shm/orbiscast';
+        } else {
+            this.CACHE_DIR = env.CACHE_DIR?.trim() || '../cache';
+            if (ramCacheRequested && !ramCacheAvailable) {
+                logger.warn('RAM_CACHE was requested but /dev/shm is not available; falling back to disk cache');
+            }
+        }
 
         // Discord configuration
         this.DISCORD_BOT_TOKEN = env.DISCORD_BOT_TOKEN?.trim() || '';
@@ -65,12 +77,14 @@ class Config {
      * @returns True if all required variables are set, false otherwise
      */
     private validateEnvVars(): boolean {
-        // Either PLAYLIST or (XMLTV + STREAM_BASE_URL) must be set
-        const requiredVars = ['DISCORD_BOT_TOKEN', 'DISCORD_USER_TOKEN', 'GUILD'];
+        const requiredVars = ['DISCORD_BOT_TOKEN', 'DISCORD_USER_TOKEN', 'GUILD', 'PLAYLIST'];
         let allVarsSet = true;
 
         requiredVars.forEach(varName => {
-            if (!this[varName as keyof Config]) {
+            const value = this[varName as keyof Config];
+            // GUILD defaults to the sentinel "0", which means it was not set.
+            const isSet = varName === 'GUILD' ? value !== '0' : Boolean(value);
+            if (!isSet) {
                 logger.error(`${varName} environment variable not set`);
                 allVarsSet = false;
             }
@@ -110,8 +124,12 @@ class Config {
      * @returns Obfuscated string
      */
     private obfuscateString(input: string, full_obfuscation: boolean = false): string {
-        const obfuscationLength = full_obfuscation ? input.length : input.length - 4;
-        return '*'.repeat(obfuscationLength) + input.slice(obfuscationLength);
+        if (full_obfuscation) {
+            return '*'.repeat(input.length);
+        }
+        // Keep the last 4 characters visible so tokens can still be identified.
+        const visibleLength = Math.min(4, input.length);
+        return '*'.repeat(input.length - visibleLength) + input.slice(input.length - visibleLength);
     }
 }
 

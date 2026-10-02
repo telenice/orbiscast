@@ -272,7 +272,7 @@ export class ProgrammeEmbedProcessor extends BaseEmbedProcessor<ProgrammeEntry> 
             .setColor('#0099ff')
             .setTimestamp();
 
-        const start = (pageOption - 1) * 25; // Using 25 as itemsPerPage
+        const start = (pageOption - 1) * 20; // Must match itemsPerPage in generateProgrammeList
 
         for (let i = 0; i < channelsToDisplay.length; i += 10) {
             const chunk = channelsToDisplay.slice(i, i + 10);
