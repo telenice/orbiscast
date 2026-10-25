@@ -48,3 +48,16 @@ export function buildCapFilters(maxHeight: number, maxFps: number): string[] {
     }
     return filters;
 }
+
+/**
+ * Filters FFmpeg's verbose output down to lines that help explain a failure
+ * (skipping the version banner, build configuration and progress noise).
+ *
+ * @param line - One line of FFmpeg stderr
+ * @returns True if the line is worth keeping
+ */
+export function isUsefulFfmpegLine(line: string): boolean {
+    const text = line.trim();
+    if (!text) return false;
+    return !/^(ffmpeg version|built with|configuration:|lib(avutil|avcodec|avformat|avdevice|avfilter|swscale|swresample|postproc)\b)/.test(text);
+}

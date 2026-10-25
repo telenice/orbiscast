@@ -3,10 +3,13 @@ import { Streamer, prepareStream, playStream, Utils } from '@dank074/discord-vid
 import { redactUrl } from '../../utils/redact';
 import { existsSync } from 'fs';
 import { buildCapFilters, createEncoder, withVideoFilters } from './video';
+import { isUsefulFfmpegLine } from './video-options';
 import type { EncoderType } from './video';
 import { getLogger } from '../../utils/logger';
 import { config } from '../../utils/config';
 import type { ChannelEntry } from '../../interfaces/iptv';
+
+const FFMPEG_LOG_LINES = 25;
 
 let vaapiFallbackLogged = false;
 
@@ -286,6 +289,7 @@ export async function startStreaming(channelEntry: ChannelEntry) {
     }
 
     let signal = abortController.signal;
+    const ffmpegLog: string[] = [];
 
     try {
         logger.info(`Stopping any possible existing stream.`);
@@ -317,6 +321,15 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         }, signal);
 
         currentChannelEntry = channelEntry;
+
+        // Keep FFmpeg's recent output: when a stream fails, the player usually
+        // notices first and cancels FFmpeg, which would otherwise hide the real cause.
+        command.on('stderr', (line: string) => {
+            if (isUsefulFfmpegLine(line)) {
+                ffmpegLog.push(line);
+                if (ffmpegLog.length > FFMPEG_LOG_LINES) ffmpegLog.shift();
+            }
+        });
 
         // The FFmpeg promise rejects when the process is cancelled or exits
         // with an error. Handle it here so it never becomes an unhandled
@@ -354,6 +367,9 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         // cleaning up, so only log/handle genuine failures.
         if (!signal.aborted) {
             logger.error(`Error starting stream: ${error}`);
+            if (ffmpegLog.length > 0) {
+                logger.error(`Last FFmpeg output:\n${ffmpegLog.map(line => redactUrl(line)).join('\n')}`);
+            }
             await stopStreaming();
         }
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCapFilters, parseFrameRate, parseResolution } from '../src/modules/streaming/video-options';
+import { buildCapFilters, isUsefulFfmpegLine, parseFrameRate, parseResolution } from '../src/modules/streaming/video-options';
 import { createEncoder, withVideoFilters } from '../src/modules/streaming/video';
 
 describe('parseResolution', () => {
@@ -80,5 +80,21 @@ describe('encoders', () => {
     it('returns the original encoder when there are no filters', () => {
         const encoder = createEncoder('software', '');
         expect(withVideoFilters(encoder, [])).toBe(encoder);
+    });
+});
+
+describe('isUsefulFfmpegLine', () => {
+    it('drops the banner and build configuration', () => {
+        expect(isUsefulFfmpegLine('ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026')).toBe(false);
+        expect(isUsefulFfmpegLine('  built with gcc 14 (Debian 14.2.0-19)')).toBe(false);
+        expect(isUsefulFfmpegLine('  configuration: --prefix=/usr')).toBe(false);
+        expect(isUsefulFfmpegLine('  libavcodec     61. 19.101 / 61. 19.101')).toBe(false);
+        expect(isUsefulFfmpegLine('   ')).toBe(false);
+    });
+
+    it('keeps errors and stream information', () => {
+        expect(isUsefulFfmpegLine('[http @ 0x1] HTTP error 404 Not Found')).toBe(true);
+        expect(isUsefulFfmpegLine('Error opening input files: Invalid data found when processing input')).toBe(true);
+        expect(isUsefulFfmpegLine('  Stream #0:0: Video: hevc (Main 10), yuv420p10le, 3840x2160')).toBe(true);
     });
 });
