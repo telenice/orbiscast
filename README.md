@@ -1,230 +1,247 @@
 # OrbisCast
 
-[![GitHub build status](https://img.shields.io/github/actions/workflow/status/zbejas/orbiscast/master.yml?label=master%20build)](https://github.com/zbejas/orbiscast/actions/workflows/master.yml)
-[![GitHub last commit](https://img.shields.io/github/last-commit/zbejas/orbiscast)](https://github.com/zbejas/orbiscast/commits/master)
-[![GitHub issues](https://img.shields.io/github/issues/zbejas/orbiscast)](https://github.com/zbejas/orbiscast/issues)
-[![GitHub pull requests](https://img.shields.io/github/issues-pr/zbejas/orbiscast)](https://github.com/zbejas/orbiscast/pulls)
-[![GitHub license](https://img.shields.io/github/license/zbejas/orbiscast)](https://github.com/zbejas/orbiscast/blob/master/LICENSE.md)
-[![Release](https://img.shields.io/github/v/release/zbejas/orbiscast)](https://github.com/zbejas/orbiscast/releases)
-[![Repo size](https://img.shields.io/github/repo-size/zbejas/orbiscast)](https://github.com/zbejas/orbiscast/)
-[![Docker Image Size (latest by date)](https://img.shields.io/docker/image-size/zbejas/orbiscast?sort=date)](https://hub.docker.com/r/zbejas/orbiscast)
-[![Docker Pulls](https://img.shields.io/docker/pulls/zbejas/orbiscast)](https://hub.docker.com/r/zbejas/orbiscast)
-[![CodeFactor](https://www.codefactor.io/repository/github/zbejas/orbiscast/badge)](https://www.codefactor.io/repository/github/zbejas/orbiscast)
+[![GitHub last commit](https://img.shields.io/github/last-commit/telenice/orbiscast)](https://github.com/telenice/orbiscast/commits/master)
+[![GitHub issues](https://img.shields.io/github/issues/telenice/orbiscast)](https://github.com/telenice/orbiscast/issues)
+[![GitHub license](https://img.shields.io/github/license/telenice/orbiscast)](https://github.com/telenice/orbiscast/blob/master/LICENSE.md)
 
-**OrbisCast** is a Discord bot that streams IPTV channels. It can be controlled by users with [commands](#commands) specified at the end of this document.
+**OrbisCast** is a Discord bot that streams IPTV channels into a Discord voice channel, so you can watch live TV together with friends. Pick a channel with a slash command, check what's on, search the TV guide for a team or show, and the bot goes live in your voice channel.
 
-The bot was made to simplify watch parties with friends. It is also useful for testing IPTV channels without the need for a dedicated IPTV player.
-
-This project is still in development, so expect bugs and missing features. If you find any issues, please report them in the [Issues](https://github.com/zbejas/orbiscast/issues) section.
+> This is a fork of [zbejas/orbiscast](https://github.com/zbejas/orbiscast) that adds Xtream Codes support, GPU transcoding, streamed guide loading and guide search. See [What this fork adds](#what-this-fork-adds).
 
 > [!CAUTION]
-> I am not responsible for any misuse of this tool. Ensure to comply with all applicable copyright laws and obtain necessary permissions for the IPTV content being streamed.
+> You are responsible for how you use this tool. Comply with all applicable copyright laws and make sure you have the rights to the IPTV content you stream.
 >
-> _Using self-bots is against [Discord's terms of service](https://discord.com/guidelines) and may result in account termination. Use at your own risk._
+> _OrbisCast streams through a regular Discord user account (a "self-bot"), which is against [Discord's terms of service](https://discord.com/guidelines) and may get that account banned. Use a secondary account, at your own risk._
 
-## Installation
+## Features
 
-### Before you start
+- **Live streaming into voice channels** via Discord's Go Live, with audio.
+- **Two kinds of IPTV source:** an M3U playlist URL, or an Xtream Codes account (server, username and password). Use either or both.
+- **TV guide (EPG):** see what's on now and next for any channel, from an XMLTV guide or your Xtream provider's own guide. Large guides are filtered to your channels as they download.
+- **Guide search:** `/search liverpool` lists upcoming matches with their times (in each viewer's own time zone), which channels show them, and a button to start watching.
+- **Channel browsing:** paginated channel lists with buttons, and autocomplete in commands.
+- **Smooth playback options:** re-encode streams into a Discord-friendly format, optionally capping resolution and frame rate (e.g. turn 4K 50 fps into 1080p 30 fps), or pass streams through untouched.
+- **GPU transcoding:** encode on an Intel or AMD GPU (VAAPI) instead of the CPU.
+- **Automatic upkeep:** channels and guide refresh on a schedule, and the stream stops by itself when nobody is watching.
+- **Docker-ready**, with GPU drivers included in the image.
 
-You will need to set a few things up before you can run the bot:
+## How it works
 
-- Create a bot on the [Discord Developer Portal](https://discord.com/developers/applications) and get the bot token, and invite the bot to your server.
-  - You can follow the instructions [here](https://discordpy.readthedocs.io/en/stable/discord.html) to create a bot and get the token and invite link. Make sure to give the bot the necessary permissions:
-    - `bot`
-    - `applications.commands`
-    - In the [Developer Portal](https://discord.com/developers/applications), go to your bot's settings and enable the `Message Content Intent`.
-- Get the user token from the Discord web client.
-  - The user token is required to join the voice channel and stream video. It is recommended to use a secondary account for this purpose.
-    - The user has to manually join the server.
-  - You can get the token by checking this [gist](https://gist.github.com/MarvNC/e601f3603df22f36ebd3102c501116c6#file-get-discord-token-from-browser-md) I found, or by using a tool like [Discord Get User Token](https://chromewebstore.google.com/detail/discord-get-user-token/accgjfooejbpdchkfpngkjjdekkcbnfd).
-  - **Note**: Be careful when using any third-party tools to get your user token, as they may be malicious. I recommend using the method in the gist.
-- Create a `.env` file in the project directory and fill in the required environment variables (see below). You can use the provided `.env.example` file as a template.
+Discord doesn't let bots send video, so OrbisCast uses two accounts:
+
+- A **bot account** provides the slash commands.
+- A **user account** joins the voice channel and does the actual streaming.
+
+When someone runs `/stream`, the bot tells the user account to join their voice channel, and FFmpeg feeds it the IPTV stream.
+
+## Getting started
+
+### 1. Set up Discord
+
+**Bot account**
+
+1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications), and copy the bot token.
+2. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent**. The bot will not log in without it.
+3. Under **OAuth2 → URL Generator**, tick the scopes **`bot`** and **`applications.commands`**, plus the permissions **View Channels**, **Send Messages** and **Embed Links**. Open the generated link to invite the bot to your server. Without the `applications.commands` scope, slash commands won't appear.
+
+**User (streaming) account**
+
+1. Use a secondary Discord account and join it to your server manually.
+2. Make sure it has **Connect**, **Speak** and **Video** permissions in the voice channels you'll stream to.
+3. Get its token from the Discord web client, for example with the method in [this gist](https://gist.github.com/MarvNC/e601f3603df22f36ebd3102c501116c6#file-get-discord-token-from-browser-md). Be careful with third-party tools that offer to fetch tokens; some are malicious.
 
 > [!WARNING]
-> Do not share any of the tokens mentioned above with anyone. If you do, regenerate them immediately by:
->
-> - Regenerating the bot token in the [Discord Developer Portal](https://discord.com/developers/applications).
-> - Regenerating the user token by logging out and back in to Discord.
->   - If you used incognito mode to get the token, you can go to Discord Settings > Devices > Log out of all known devices (or just log out of the specific session).
+> Never share either token. If one leaks, regenerate the bot token in the Developer Portal, and log the user account out of all devices (Discord Settings → Devices) to invalidate its token.
 
-### Docker
+### 2. Get an IPTV source
 
-In the repo is a provided `compose.yml` file that can be used to run the bot.
-Copy the file and fill in the required environment variables or create a `.env` file in the same directory as the `compose.yml` file.
-
-Then, run the following command to start the bot:
-
-```bash
-docker compose up
-```
-
-or to run it in the background:
-
-```bash
-docker compose up -d
-```
+You need either an **M3U playlist URL** or **Xtream Codes credentials** from your provider. A guide is optional but recommended: an **XMLTV URL**, or the Xtream provider's own guide, which is used automatically.
 
 > [!TIP]
-> You can check the logs using:
->
-> ```bash
-> docker compose logs -f
-> ```
->
-> _The `-f` flag is optional and is used to follow the logs._
+> Tools like [Threadfin](https://github.com/Threadfin/Threadfin) or [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) are handy for curating channels. Public M3U playlists are available from [iptv-org](https://github.com/iptv-org/iptv), and [awesome-iptv](https://github.com/iptv-org/awesome-iptv) has more background.
 
-All of the app data is stored in `/app/data`. The cache is stored in `/app/cache` or RAM, depending on the `RAM_CACHE` and `CACHE_DIR` environment variables.
+### 3. Run it with Docker (recommended)
 
-You can check the available tags on the [Docker Hub page](https://hub.docker.com/r/zbejas/orbiscast/tags?ordering=name).
-
-### Manual
-
-> [!IMPORTANT]
-> The following instructions are for running the bot manually. If you are using Docker, you can skip this section. [Node.js](https://nodejs.org/) v22.4 or higher is required, together with a working [FFmpeg](https://ffmpeg.org/) installation on your `PATH`.
-
-The project can also be run manually. To do so, first download the project and install the dependencies:
+Clone this repository, create a `.env` file from `.env.example` (see [Configuration](#configuration)), then build and start the container:
 
 ```bash
-git clone https://github.com/zbejas/orbiscast
+git clone https://github.com/telenice/orbiscast
+cd orbiscast
+cp .env.example .env   # then edit .env
+docker compose up -d --build
+```
+
+Follow the logs with `docker compose logs -f`. To update later, run `git pull` and then `docker compose up -d --build` again.
+
+App data (the channel and guide database, and logs) is stored in `./data`. The download cache lives in RAM (`/dev/shm`) by default, or on disk if you set `RAM_CACHE=false`.
+
+> [!NOTE]
+> The official `zbejas/orbiscast` image on Docker Hub does not include this fork's features. Build from this repository, as above.
+
+### Or run it manually
+
+You need [Node.js](https://nodejs.org/) 22.4 or newer and [FFmpeg](https://ffmpeg.org/) on your `PATH`. The FFmpeg build must include libzmq (Debian's and Ubuntu's `ffmpeg` packages do).
+
+```bash
+git clone https://github.com/telenice/orbiscast
 cd orbiscast
 npm install
-```
-
-For development with auto-reload:
-
-```bash
-npm run dev
-```
-
-For production, build and run:
-
-```bash
+cp .env.example .env   # then edit .env
 npm run build
 npm run start:prod
 ```
 
-Or run directly with TypeScript:
+Use `npm run dev` for auto-reload during development, or `npm start` to run straight from TypeScript.
 
-```bash
-npm start
+## Configuration
+
+All settings are environment variables, usually kept in a `.env` file (see `.env.example`). The minimum is the three Discord values plus one IPTV source.
+
+**With an M3U playlist:**
+
+```env
+DISCORD_BOT_TOKEN="..."
+DISCORD_USER_TOKEN="..."
+GUILD=123456789012345678
+PLAYLIST="http://example.com/playlist.m3u"
+XMLTV="http://example.com/guide.xml"   # optional
 ```
 
-### Development
+**With an Xtream Codes account:**
 
-Run the type checker and the test suite before opening a pull request:
-
-```bash
-npm run typecheck
-npm test
+```env
+DISCORD_BOT_TOKEN="..."
+DISCORD_USER_TOKEN="..."
+GUILD=123456789012345678
+XTREAM_HOST="http://example.com:8080"
+XTREAM_USERNAME="..."
+XTREAM_PASSWORD="..."
+XTREAM_CATEGORIES="UK | Entertainment,UK | Sports"   # recommended
 ```
 
-Other useful scripts:
+### Discord
 
-```bash
-npm run test:watch    # re-run tests on change
-npm run test:coverage # tests with coverage
-```
+| Variable | Description | Default | Required |
+|---|---|---|---|
+| `DISCORD_BOT_TOKEN` | Token of the bot account. | | ✔ |
+| `DISCORD_USER_TOKEN` | Token of the user account that streams. | | ✔ |
+| `GUILD` | ID of your Discord server. Turn on Developer Mode, then right-click the server and choose Copy Server ID. | | ✔ |
 
-See [AGENTS.md](AGENTS.md) for more detail on the project architecture.
+### IPTV sources
 
-## Environment Variables
+Configure `PLAYLIST`, the three `XTREAM_*` credentials, or both. If both are set, their channels are merged.
 
-The application uses the following environment variables, which should be defined in a `.env` file (see `.env.example`):
+| Variable | Description | Default |
+|---|---|---|
+| `PLAYLIST` | URL of an M3U playlist. | |
+| `XTREAM_HOST` | Xtream server URL, including the port. | |
+| `XTREAM_USERNAME` | Xtream username. | |
+| `XTREAM_PASSWORD` | Xtream password. | |
+| `XTREAM_CATEGORIES` | Comma-separated category names or IDs to keep, e.g. `UK \| Sports,12`. Leave empty for all. | *(all)* |
+| `XTREAM_OUTPUT` | Stream format: `ts` (MPEG-TS) or `m3u8` (HLS). | `ts` |
 
-### System and IPTV Configuration
+Xtream accounts often contain thousands of channels; `XTREAM_CATEGORIES` keeps the list manageable and makes guide loading much lighter. On startup the bot logs your Xtream account status, expiry date and connection limit. Credentials are masked in all logs.
 
-| Variable                 | Description                                                           | Example/Default                       | Required |
-|--------------------------|-----------------------------------------------------------------------|---------------------------------------|----------|
-| `PLAYLIST`               | URL to the M3U playlist. Required unless Xtream is configured.        | `http://example.com/m3u/playlist.m3u` | ✔*       |
-| `XMLTV`                  | URL to the XMLTV guide. Defaults to the Xtream EPG when Xtream is set. | `http://example.com/xmltv/guide.xml`  | ✘        |
-| `XTREAM_HOST`            | Xtream Codes server URL (with port). Required with Xtream.            | `http://example.com:8080`             | ✔*       |
-| `XTREAM_USERNAME`        | Xtream account username.                                              | `username`                            | ✔*       |
-| `XTREAM_PASSWORD`        | Xtream account password.                                              | `password`                            | ✔*       |
-| `XTREAM_OUTPUT`          | Stream container: `ts` (MPEG-TS) or `m3u8` (HLS).                     | `ts`                                  | ✘        |
-| `XTREAM_CATEGORIES`      | Comma-separated live category IDs or names to keep (empty = all).     | `UK \| News,12`                       | ✘        |
-| `XTREAM_EPG`             | Use the provider's `xmltv.php` guide when `XMLTV` is not set.         | `true`                                | ✘        |
-| `XMLTV_DAYS`             | Days of upcoming guide listings to keep (`0` = all).                  | `3`                                   | ✘        |
-| `REFRESH_IPTV`           | Interval in minutes to refresh the IPTV data.                         | `1440`                                | ✘        |
-| `RAM_CACHE`              | Whether to use RAM for caching.                                       | `true`                                | ✘        |
-| `CACHE_DIR`              | Directory for cache storage.                                          | `../cache`                            | ✘        |
-| `DEBUG`                  | Enable debug mode.                                                    | `false`                               | ✘        |
-| `DEFAULT_STREAM_TIMEOUT` | Default stream timeout (when alone in channel) in minutes.            | `10`                                  | ✘        |
-| `TZ`                     | Timezone for the container. Example: `Europe/Ljubljana`               | `UTC`                                 | ✘        |
-| `MINIMIZE_LATENCY`       | Minimize latency for the stream.                                      | `true`                                | ✘        |
-| `BITRATE_VIDEO`          | Video bitrate in Kbps.                                                | `5000`                                | ✘        |
-| `BITRATE_VIDEO_MAX`      | Maximum video bitrate in Kbps.                                        | `7500`                                | ✘        |
-| `DISABLE_TRANSCODE`      | Disable transcoding and pass stream through directly.                 | `false`                               | ✘        |
-| `ENCODER`                | Video encoder when transcoding: `software` (CPU) or `vaapi` (GPU).    | `software`                            | ✘        |
-| `VAAPI_DEVICE`           | GPU render node used with `ENCODER=vaapi`.                            | `/dev/dri/renderD128`                 | ✘        |
-| `HARDWARE_DECODING`      | Decode the source on the GPU too. Defaults to on with `vaapi`.        | `false`                               | ✘        |
-| `STREAM_RESOLUTION`      | Maximum output height, e.g. `1080` or `720`. Unset keeps the source.  | *(source)*                            | ✘        |
-| `STREAM_FPS`             | Maximum output frame rate, e.g. `30`. Unset keeps the source.         | *(source)*                            | ✘        |
+### TV guide
 
-\* Configure **either** `PLAYLIST` **or** all three of `XTREAM_HOST`, `XTREAM_USERNAME` and `XTREAM_PASSWORD`. If both are set, channels from both sources are merged.
+| Variable | Description | Default |
+|---|---|---|
+| `XMLTV` | URL of an XMLTV guide. With Xtream, the provider's guide is used when this is unset. | |
+| `XTREAM_EPG` | Use the Xtream provider's guide when `XMLTV` is unset. | `true` |
+| `XMLTV_DAYS` | Days of upcoming listings to keep. `0` keeps everything. | `3` |
+| `REFRESH_IPTV` | How often to refresh channels and guide, in minutes. | `1440` |
 
-#### Xtream Codes API
+The guide is read as it downloads, and only listings for your channels are kept, so even a guide of several hundred MB loads with modest memory. Channels are matched to the guide by EPG ID (`tvg-id` / `epg_channel_id`) or by name. `/search` can only find what's in the stored guide, so raise `XMLTV_DAYS` to search further ahead.
 
-If your provider gives you a server URL, username and password instead of an M3U link, set the `XTREAM_*` variables. OrbisCast reads live channels and categories from `player_api.php`, builds stream URLs as `<host>/live/<user>/<pass>/<id>.<ts|m3u8>`, and (unless you set `XMLTV` or `XTREAM_EPG=false`) loads the programme guide from the provider's `xmltv.php`. Credentials are masked in the logs.
+### Streaming and quality
 
-Xtream accounts often contain thousands of channels; use `XTREAM_CATEGORIES` to keep only the categories you want. The guide is streamed and filtered as it downloads, so only listings for your channels are stored, even if the provider's full guide is hundreds of MB. Category names are matched case-insensitively against the provider's live category names.
+| Variable | Description | Default |
+|---|---|---|
+| `DISABLE_TRANSCODE` | `true` sends the stream to Discord as-is; `false` re-encodes it. | `false` |
+| `BITRATE_VIDEO` | Target video bitrate in kbps when transcoding. | `5000` |
+| `BITRATE_VIDEO_MAX` | Maximum video bitrate in kbps when transcoding. | `7500` |
+| `STREAM_RESOLUTION` | Maximum output height when transcoding, e.g. `1080` or `720`. Unset keeps the source. | *(source)* |
+| `STREAM_FPS` | Maximum output frame rate when transcoding, e.g. `30`. Unset keeps the source. | *(source)* |
+| `ENCODER` | `software` (CPU) or `vaapi` (Intel/AMD GPU). | `software` |
+| `VAAPI_DEVICE` | GPU device used with `ENCODER=vaapi`. | `/dev/dri/renderD128` |
+| `HARDWARE_DECODING` | Decode the source on the GPU as well. | `true` with `vaapi`, else `false` |
+| `MINIMIZE_LATENCY` | Reduce delay by disabling input buffering. Turn off if playback is choppy. | `true` |
+| `DEFAULT_STREAM_TIMEOUT` | Minutes before the stream stops when nobody is watching. | `10` |
 
-> [!TIP]
-> There is a bunch of IPTV providers online. I recommend using a tool like [Threadfin](https://github.com/Threadfin/Threadfin) or [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) to sort out your IPTV channels. You can find public M3U playlists [here](https://github.com/iptv-org/iptv). More info on IPTV can be found [here](https://github.com/iptv-org/awesome-iptv).
+**Transcoding or passthrough?** Passthrough (`DISABLE_TRANSCODE=true`) uses almost no CPU, but sends whatever your provider broadcasts, which can include 4K at 50 fps and video features Discord handles poorly. Transcoding produces a stream built for Discord, with a steady bitrate, frequent keyframes and no B-frames. It is the most reliable way to get smooth playback.
 
-#### Transcoding, GPU encoding and output caps
+**Resolution and frame-rate caps** only ever scale down. With `STREAM_RESOLUTION=1080` and `STREAM_FPS=30`, a 2160p 50 fps channel becomes 1080p 30 fps, while a 720p 25 fps channel stays as it is. For 50 fps sources, `STREAM_FPS=25` divides more evenly than `30`.
 
-When transcoding (`DISABLE_TRANSCODE=false`), OrbisCast re-encodes the stream to H.264 with no B-frames, a keyframe every second and the configured bitrate, which is the most reliable way to get smooth playback in Discord. By default it keeps the source's resolution and frame rate. Set `STREAM_RESOLUTION` and/or `STREAM_FPS` to cap them: sources above a cap are scaled down, sources at or below it are left untouched (never upscaled). For example `STREAM_RESOLUTION=1080` and `STREAM_FPS=30` turn a 2160p 50 fps channel into 1080p 30 fps, while a 720p 25 fps channel stays as it is. These settings have no effect with `DISABLE_TRANSCODE=true`.
-
-To encode on an Intel (or AMD) GPU instead of the CPU, set `ENCODER=vaapi` and pass the GPU into the container:
+**GPU transcoding.** To encode on an Intel or AMD GPU, set `ENCODER=vaapi` and pass the GPU into the container in `compose.yml`:
 
 ```yaml
     devices:
       - /dev/dri:/dev/dri
 ```
 
-The Docker image includes the Intel and AMD VAAPI drivers. Run `docker exec orbiscast vainfo` to check the GPU is visible; it should list `VAEntrypointEncSlice` for H.264. If the device is missing, OrbisCast logs an error and falls back to CPU encoding. If the host has more than one GPU, set `VAAPI_DEVICE` to the right render node (`ls /dev/dri`).
+The Docker image includes the Intel and AMD VAAPI drivers. To check it's working:
 
-### Discord Configuration
+- `docker exec orbiscast vainfo` should list H.264 with `VAEntrypointEncSlice`.
+- While streaming, `sudo intel_gpu_top` on the host (from the `intel-gpu-tools` package) shows the `ffmpeg` process using the **Video** engine.
 
-The reason we have a `bot` and a `user` token is because the current Discord API does not allow bots to stream video. The bot is used to control the user, which is the one that actually streams the video.
+If the GPU device is missing, the bot logs an error and falls back to CPU encoding.
 
-| Variable              | Description                                      | Example/Default                          | Required |
-|-----------------------|--------------------------------------------------|------------------------------------------|----------|
-| `DISCORD_BOT_TOKEN`           | Token for the Discord bot.                       | `YOUR_BOT_TOKEN_HERE`                    | ✔        |
-| `DISCORD_USER_TOKEN`  | Token for the Discord user.                      | `YOUR_USER_TOKEN_HERE`                   | ✔        |
-| `GUILD`               | Discord guild (server) ID.                       | `000000000000000000`                     | ✔        |
+### System
+
+| Variable | Description | Default |
+|---|---|---|
+| `TZ` | Container time zone, e.g. `Europe/London`. | `UTC` |
+| `RAM_CACHE` | Keep downloads in RAM (`/dev/shm`) instead of on disk. | `true` |
+| `CACHE_DIR` | Disk cache directory when `RAM_CACHE=false`. | `../cache` |
+| `DEBUG` | Verbose logging. | `false` |
 
 ## Commands
 
-The bot can be controlled using the following commands:
-
 | Command | Description |
-|---------|-------------|
-| `/stream <channel>` | Start streaming the specified channel. |
-| `/programme <channel>` | Show the current programme for the specified channel. |
-| `/channels <page>` | List all available channels. Page is optional. |
-| `/search <query>` | Search the TV guide (e.g. `liverpool`) and see when it's on and on which channels, with buttons to watch. |
-| `/stop` | Stop the current stream. |
-| `/refresh <type>` | Refresh the specified data. Type can be "all", "channels", or "programme". |
+|---|---|
+| `/stream <channel>` | Start streaming a channel in your current voice channel. |
+| `/stop` | Stop the stream. |
+| `/channels [page]` | Browse all channels, with buttons to play them. |
+| `/programme [channel]` | Show what's on now and next for a channel. Without a channel, pick one from a list. |
+| `/search <query>` | Search the TV guide (e.g. `liverpool`) for what's on, when and on which channels, with buttons to watch. |
+| `/refresh <type>` | Reload `all` data, just the `channels`, or just the `programme` guide. |
 
-> [!TIP]
-> Both `/channels` and `/programme` commands support autocompletion for channel names. However, Discord limits the number of options shown at once to 25. Use the `/channels` or `/programme` command to see all available channels. The bot will show the first 25 channels, and you can use the `page` argument to see more.
+Channel names autocomplete in `/stream` and `/programme`. Discord shows at most 25 suggestions, so keep typing to narrow them down, or use `/channels` to browse everything.
+
+`/search` requires every word to match, ignoring capitals, accents and punctuation. Programmes with the words in their title are listed first, ordered by start time with live ones at the top, followed by ones that only mention them in the description.
 
 ## Troubleshooting
 
-If you encounter any issues, here are some common problems and their solutions:
+- **Slash commands don't appear:** re-invite the bot with the `applications.commands` scope, and check that `GUILD` matches your server. The log lists the servers the bot is in if it doesn't. Commands register once the log shows `Successfully registered application commands.`, which happens after the channel data has loaded.
+- **The bot doesn't log in ("disallowed intents"):** enable Message Content Intent in the Developer Portal.
+- **Choppy playback:** try `MINIMIZE_LATENCY=false` first. If it persists, turn transcoding on (`DISABLE_TRANSCODE=false`), and cap high-resolution channels with `STREAM_RESOLUTION` / `STREAM_FPS`. If the CPU can't keep up, use `ENCODER=vaapi` with a GPU.
+- **Stream starts but nobody sees video:** give the user account the **Video** permission in that voice channel.
+- **Missing channels:** check the playlist URL or Xtream credentials (with Xtream, look for the account status line in the log), and `XTREAM_CATEGORIES`. Then run `/refresh channels`.
+- **No guide, or "No guide entries matched your channels":** the channels' EPG IDs don't match the guide's channel IDs. Check that your playlist's `tvg-id` values, or your provider's EPG IDs, line up with the guide.
+- **Stream freezes when the source drops:** the bot may not notice the source disconnecting. Run `/stop` and start the channel again, or restart the bot.
 
-- **Stream freezes or hangs**: If the stream source gets disconnected or the stream is killed from the source side, the bot may hang indefinitely. Currently, there's no automatic detection for this issue, so you'll need to restart the bot.
+If you run into something not listed here, please [open an issue](https://github.com/telenice/orbiscast/issues).
 
-- **Stream quality issues**: If you're experiencing quality problems, try adjusting the `BITRATE_VIDEO` and `BITRATE_VIDEO_MAX` environment variables to values that work better with your network conditions.
+## What this fork adds
 
-- **High latency**: Enable the `MINIMIZE_LATENCY` option in your environment variables to reduce streaming delay.
+Compared with [zbejas/orbiscast](https://github.com/zbejas/orbiscast):
 
-- **Missing channels**: Make sure your M3U playlist URL (or Xtream host and credentials) is correct and accessible. With Xtream, check the log line reporting your account status and expiry date. You can use the `/refresh channels` command to reload the channel list.
+- Xtream Codes API support, with category filtering and the provider's own guide
+- Guide loading that streams and filters large guides, plus the `XMLTV_DAYS` window
+- The `/search` command
+- GPU (VAAPI) transcoding, and optional resolution and frame-rate caps
+- Fixes: `MINIMIZE_LATENCY` no longer breaks every stream; a guide-only refresh no longer leaves channels unplayable; large guides no longer crash the bot; channels without an EPG ID can be streamed; credentials are masked in logs
 
-- **Authorization errors**: If the bot can't join voice channels or execute commands, verify that both the bot and user tokens are correct and have the necessary permissions.
+## Development
 
-If you encounter issues not listed here, please open a new [issue](https://github.com/zbejas/orbiscast/issues) with details about your problem.
-  
-> [!NOTE]
-> In my testing, I've been using tools mentioned in the [System and IPTV Configuration](#system-and-iptv-configuration) tip to sort out the channels. It should work with any M3U or HDHR playlist, but I cannot guarantee it. This tool was not built or tested with a large number of channels, so it may not work as expected if you overload it with data. For any issues, please open a new [issue](https://github.com/zbejas/orbiscast/issues).
+```bash
+npm run typecheck   # type-check the source
+npm test            # run the test suite
+npm run test:watch  # re-run tests on change
+```
+
+See [AGENTS.md](AGENTS.md) for an architecture overview.
+
+## Credits
+
+OrbisCast was created by [Zbejas](https://github.com/zbejas). Streaming is powered by [discord-video-stream](https://github.com/dank074/Discord-video-stream). Licensed under [GPL-3.0](LICENSE.md).

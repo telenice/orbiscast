@@ -1,8 +1,9 @@
 services:
   orbiscast:
-  # You can use a specific version if you want by replacing latest with the version number
-  # See https://hub.docker.com/r/zbejas/orbiscast/tags?ordering=name for available versions
-    image: docker.io/zbejas/orbiscast:latest
+    # Built from this repository: run `docker compose up -d --build`.
+    # The upstream zbejas/orbiscast image does not include this fork's features.
+    build: .
+    image: orbiscast:local
     container_name: orbiscast
     restart: unless-stopped
     # Data is stored in /app/data inside the container
