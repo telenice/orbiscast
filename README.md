@@ -196,7 +196,7 @@ The Docker image includes the Intel and AMD VAAPI drivers. To check it's working
 - `docker exec orbiscast vainfo` should list H.264 with `VAEntrypointEncSlice`.
 - While streaming, `sudo intel_gpu_top` on the host (from the `intel-gpu-tools` package) shows the `ffmpeg` process using the **Video** engine.
 
-If the GPU device is missing, the bot logs an error and falls back to CPU encoding. If a channel fails to start on the GPU (some streams carry data the GPU decoder rejects), the bot retries automatically with CPU decoding, then CPU encoding, and remembers what worked for that channel until the bot restarts.
+If the GPU device is missing, the bot logs an error and falls back to CPU encoding. If a channel fails to start on the GPU (some streams carry data the GPU decoder rejects), the bot retries automatically with CPU decoding, then CPU encoding. Every play tries the GPU first again.
 
 ### System
 

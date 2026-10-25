@@ -44,7 +44,7 @@ const channel = { xui_id: 1, tvg_name: 'The Vampire Diaries', tvg_id: 'tvd', url
 describe('startStreaming GPU fallback', () => {
     beforeEach(() => { calls.length = 0; });
 
-    it('retries with CPU decoding when GPU decoding fails, and remembers it', async () => {
+    it('retries with CPU decoding when GPU decoding fails, and tries the GPU first again next time', async () => {
         failWhen = c => c.hw;
         const streaming = await loadStreaming();
         await streaming.startStreaming(channel);
@@ -55,7 +55,10 @@ describe('startStreaming GPU fallback', () => {
 
         calls.length = 0;
         await streaming.startStreaming(channel);
-        expect(calls).toEqual([{ hw: false, encoder: 'h264_vaapi' }]);
+        expect(calls).toEqual([
+            { hw: true, encoder: 'h264_vaapi' },
+            { hw: false, encoder: 'h264_vaapi' },
+        ]);
     }, 20_000);
 
     it('falls back to CPU encoding when the GPU encoder fails too', async () => {

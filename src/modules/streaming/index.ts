@@ -279,12 +279,6 @@ function startSpectatorMonitoring(): () => void {
     };
 }
 
-/**
- * Channels (by stream URL) that only started after falling back, mapped to the
- * playback plan that worked, so later plays skip the failing GPU setup.
- */
-const workingPlanByUrl = new Map<string, number>();
-
 /** A stream that fails within this window is treated as "failed to start". */
 const START_FAILURE_WINDOW_MS = 20_000;
 
@@ -297,8 +291,8 @@ let hdrPassthroughHintLogged = false;
 /**
  * Starts streaming a channel to the voice channel the streamer is in. If the
  * configured GPU setup can't handle a channel (it fails to start), playback is
- * retried with CPU decoding, then CPU encoding, and the working setup is
- * remembered for that channel.
+ * retried with CPU decoding, then CPU encoding. Every play starts with the
+ * configured (GPU) setup again.
  *
  * @param channelEntry - Channel to stream
  */
@@ -313,12 +307,7 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         encoder: config.ENCODER,
         hardwareDecoding: config.HARDWARE_DECODING,
     });
-    const first = Math.min(workingPlanByUrl.get(channelEntry.url) ?? 0, plans.length - 1);
-    if (first > 0) {
-        logger.info(`Using ${describePlaybackPlan(plans[first]!)} for ${channelEntry.tvg_name} (it failed with the GPU before)`);
-    }
-
-    for (let index = first; index < plans.length; index++) {
+    for (let index = 0; index < plans.length; index++) {
         const plan = plans[index]!;
         const outcome = await playOnce(channelEntry, plan, plans.length > 1);
 
@@ -329,9 +318,6 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         if (outcome === 'failed-to-start' && index < plans.length - 1) {
             logger.warn(`${channelEntry.tvg_name} failed to start with ${describePlaybackPlan(plan)}; retrying with ${describePlaybackPlan(plans[index + 1]!)}`);
             continue;
-        }
-        if (outcome !== 'failed-to-start' && outcome !== 'stopped' && index > 0) {
-            workingPlanByUrl.set(channelEntry.url, index);
         }
         if (outcome === 'failed-to-start' || outcome === 'failed') {
             await stopStreaming();
