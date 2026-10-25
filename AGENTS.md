@@ -157,8 +157,17 @@ ordering: if you add a module that reads `process.env` at import time, import
   keep it `false` and pass `LOW_LATENCY_INPUT_OPTIONS` via `customInputOptions`.
   The returned FFmpeg promise is explicitly handled so it never becomes an
   unhandled rejection.
-- `stopStreaming()` aborts playback, clears the spectator monitor and resets
-  state. `leaveVoiceChannel()` stops and disconnects.
+- Channel changes keep the Go Live session open (`SEAMLESS_SWITCHING`,
+  default on): `streaming/session.ts#LiveSession` reimplements the part of the
+  library's `playStream` that wires demuxed packets into the stream connection,
+  but only `end()` stops the Go Live stream. The packetizer is only reset when
+  the video codec changes, so RTP sequence numbers/timestamps continue across
+  sources. `VideoStream`, `AudioStream` and `AVCodecID` are not exported by the
+  library and are loaded from its `dist/media` files; if that fails (library
+  layout changed) playback falls back to `playStream`.
+- `stopPlayback()` stops the current source only; `stopStreaming()` also ends
+  the Go Live session (used by `/stop`, idle timeout, leaving voice, and when a
+  source ends or fails). `leaveVoiceChannel()` stops and disconnects.
 - A spectator monitor stops the stream after `DEFAULT_STREAM_TIMEOUT` minutes
   with no non-bot viewers.
 
