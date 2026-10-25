@@ -1,6 +1,7 @@
 import { Client } from '@lng2004/discord.js-selfbot-v13';
 import { Streamer, prepareStream, playStream, Utils } from '@dank074/discord-video-stream';
 import { redactUrl } from '../../utils/redact';
+import { applyLibraryFixes } from './library-fixes';
 import { existsSync } from 'fs';
 import { buildCapFilters, createEncoder, withVideoFilters } from './video';
 import { buildPlaybackPlans, buildToneMapFilters, describePlaybackPlan, isHdrStreamLine, isUsefulFfmpegLine } from './video-options';
@@ -36,6 +37,8 @@ export const LOW_LATENCY_INPUT_OPTIONS = ['-fflags', 'nobuffer', '-flags', 'low_
 
 const logger = getLogger();
 const streamer = new Streamer(new Client());
+// Patch known discord-video-stream bugs before anything streams.
+const libraryFixesReady = applyLibraryFixes();
 let abortController = new AbortController();
 let currentChannelEntry: ChannelEntry | null = null;
 let streamSpectatorMonitor: ReturnType<typeof setInterval> | null = null;
@@ -301,6 +304,8 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         logger.error('Streamer client is not logged in');
         return;
     }
+
+    await libraryFixesReady;
 
     const plans = buildPlaybackPlans({
         transcoding: !config.DISABLE_TRANSCODE,

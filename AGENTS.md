@@ -222,6 +222,13 @@ See `.env.example` and the README table. Required: `DISCORD_BOT_TOKEN`,
 
 ## Known upstream issues
 
+- discord-video-stream 7.0.0's `AnnexBBitstreamWriter.writeSignedExpGolomb`
+  maps 0 to -1 and throws, so any H.264 SPS with a signed field equal to 0
+  crashed the process during the SPS VUI rewrite. `streaming/library-fixes.ts`
+  patches the writer at startup (only if still buggy) and wraps
+  `WebRtcConnWrapper.sendVideoFrame` so a frame the library can't process is
+  dropped and logged instead of crashing the bot. Remove once fixed upstream.
+
 - `tsx` (used by `npm start` / `npm run dev`) cannot resolve
   `unicorn-magic@0.3.0` because its conditional exports are import-only. Plain
   Node and the compiled `dist` build are unaffected. `package.json` overrides
