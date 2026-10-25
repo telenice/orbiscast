@@ -143,6 +143,7 @@ The application uses the following environment variables, which should be define
 | `XTREAM_OUTPUT`          | Stream container: `ts` (MPEG-TS) or `m3u8` (HLS).                     | `ts`                                  | ✘        |
 | `XTREAM_CATEGORIES`      | Comma-separated live category IDs or names to keep (empty = all).     | `UK \| News,12`                       | ✘        |
 | `XTREAM_EPG`             | Use the provider's `xmltv.php` guide when `XMLTV` is not set.         | `true`                                | ✘        |
+| `XMLTV_DAYS`             | Days of upcoming guide listings to keep (`0` = all).                  | `3`                                   | ✘        |
 | `REFRESH_IPTV`           | Interval in minutes to refresh the IPTV data.                         | `1440`                                | ✘        |
 | `RAM_CACHE`              | Whether to use RAM for caching.                                       | `true`                                | ✘        |
 | `CACHE_DIR`              | Directory for cache storage.                                          | `../cache`                            | ✘        |
@@ -160,7 +161,7 @@ The application uses the following environment variables, which should be define
 
 If your provider gives you a server URL, username and password instead of an M3U link, set the `XTREAM_*` variables. OrbisCast reads live channels and categories from `player_api.php`, builds stream URLs as `<host>/live/<user>/<pass>/<id>.<ts|m3u8>`, and (unless you set `XMLTV` or `XTREAM_EPG=false`) loads the programme guide from the provider's `xmltv.php`. Credentials are masked in the logs.
 
-Xtream accounts often contain thousands of channels; use `XTREAM_CATEGORIES` to keep only the categories you want. Category names are matched case-insensitively against the provider's live category names.
+Xtream accounts often contain thousands of channels; use `XTREAM_CATEGORIES` to keep only the categories you want. The guide is streamed and filtered as it downloads, so only listings for your channels are stored, even if the provider's full guide is hundreds of MB. Category names are matched case-insensitively against the provider's live category names.
 
 > [!TIP]
 > There is a bunch of IPTV providers online. I recommend using a tool like [Threadfin](https://github.com/Threadfin/Threadfin) or [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) to sort out your IPTV channels. You can find public M3U playlists [here](https://github.com/iptv-org/iptv). More info on IPTV can be found [here](https://github.com/iptv-org/awesome-iptv).

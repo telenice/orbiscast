@@ -1,8 +1,9 @@
 import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { Readable } from 'stream';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { extractXMLTVData } from '../src/modules/iptv/parsers/xmltv-parser';
+import { extractXMLTVData, parseXMLTVStream } from '../src/modules/iptv/parsers/xmltv-parser';
 
 const SAMPLE_XMLTV = `<?xml version="1.0" encoding="UTF-8"?>
 <tv generator-info-name="test">
@@ -77,5 +78,64 @@ describe('extractXMLTVData', () => {
         const parsed = await extractXMLTVData(invalidPath);
         expect(parsed.channels).toEqual([]);
         expect(parsed.programmes).toEqual([]);
+    });
+});
+
+describe('parseXMLTVStream filtering', () => {
+    const now = Math.floor(Date.now() / 1000);
+    const fmt = (t: number) => new Date(t * 1000).toISOString().replace(/[-:T]/g, '').slice(0, 14) + ' +0000';
+    const guide = `<?xml version="1.0"?>
+<tv>
+  <channel id="bbc1.uk"><display-name>BBC One</display-name></channel>
+  <channel id="itv1.uk"><display-name>ITV1</display-name></channel>
+  <channel id="other.us"><display-name>Other</display-name></channel>
+  <programme start="${fmt(now - 7200)}" stop="${fmt(now - 3600)}" channel="bbc1.uk"><title>Old</title></programme>
+  <programme start="${fmt(now)}" stop="${fmt(now + 3600)}" channel="bbc1.uk"><title>Current &amp; Next</title></programme>
+  <programme start="${fmt(now)}" stop="${fmt(now + 3600)}" channel="itv1.uk"><title>Corrie</title></programme>
+  <programme start="${fmt(now)}" stop="${fmt(now + 3600)}" channel="other.us"><title>Dropped</title></programme>
+</tv>`;
+
+    const parse = (xml: string, options = {}) => parseXMLTVStream(Readable.from([xml]), options);
+
+    it('keeps only wanted channels by id or display name', async () => {
+        const parsed = await parse(guide, { wanted: new Set(['BBC1.UK', 'itv1']) });
+        expect(parsed.channels.map(c => c.tvg_id)).toEqual(['bbc1.uk', 'itv1.uk']);
+        expect(parsed.programmes.map(p => p.channel).sort()).toEqual(['bbc1.uk', 'bbc1.uk', 'itv1.uk']);
+    });
+
+    it('drops programmes that already ended', async () => {
+        const parsed = await parse(guide, { wanted: new Set(['bbc1.uk']), dropEndedBefore: now });
+        expect(parsed.programmes.map(p => p.title)).toEqual(['Current & Next']);
+    });
+
+    it('drops programmes starting too far ahead', async () => {
+        const parsed = await parse(guide, { dropStartingAfter: now - 3600 });
+        expect(parsed.programmes.map(p => p.title)).toEqual(['Old']);
+    });
+
+    it('keeps everything when no filter is given', async () => {
+        const parsed = await parse(guide);
+        expect(parsed.channels).toHaveLength(3);
+        expect(parsed.programmes).toHaveLength(4);
+    });
+
+    it('survives an unescaped ampersand', async () => {
+        const parsed = await parse(guide.replace('Corrie', 'Tom & Jerry'));
+        expect(parsed.channels).toHaveLength(3);
+        expect(parsed.programmes.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('handles input split into many small chunks', async () => {
+        const chunks = guide.match(/[\s\S]{1,7}/g) ?? [];
+        const parsed = await parseXMLTVStream(Readable.from(chunks), {});
+        expect(parsed.programmes).toHaveLength(4);
+    });
+
+    it('keeps multi-byte characters split across chunks', async () => {
+        const buf = Buffer.from(guide.replace('Corrie', 'Café Société'), 'utf8');
+        const chunks: Buffer[] = [];
+        for (let i = 0; i < buf.length; i += 5) chunks.push(buf.subarray(i, i + 5));
+        const parsed = await parseXMLTVStream(Readable.from(chunks), {});
+        expect(parsed.programmes.map(p => p.title)).toContain('Café Société');
     });
 });

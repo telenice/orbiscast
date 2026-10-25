@@ -1,14 +1,14 @@
-import { promises as fs } from 'fs';
 import { getLogger } from '../../utils/logger';
 import { config } from '../../utils/config';
-import { clearCache, getCachedFile, getCachedFilePath } from '../../utils/cache';
+import { clearCache, getCachedFile } from '../../utils/cache';
 import { clearChannels, addChannels, clearProgrammes, addProgrammes, getChannelEntries } from '../database';
-import { fetchWithRetry } from './downloaders';
+import { fetchWithRetry, streamWithRetry } from './downloaders';
 import { fromPlaylistLine } from './parsers/playlist-parser';
-import { extractXMLTVData } from './parsers/xmltv-parser';
+import { parseXMLTVStream } from './parsers/xmltv-parser';
 import { isProgrammeDataStale } from './utils';
 import { scheduleIPTVRefresh } from './schedulers';
 import { fetchXtreamChannels } from './xtream';
+import { buildGuideFilter, mergeChannelLists } from './merge';
 import type { ChannelEntry } from '../../interfaces/iptv';
 
 const logger = getLogger();
@@ -22,14 +22,18 @@ const logger = getLogger();
 export async function downloadCacheAndFillDb(force = false): Promise<void> {
     logger.debug(`Initiating IPTV data download and database population (force: ${force})`);
 
-    // Try XMLTV first for comprehensive data
-    if (config.XMLTV) {
-        await populateDatabaseFromXMLTV(force);
-    }
+    // Fetch the playable channels first so the guide can be filtered down to them.
+    const sourceChannels = await fetchSourceChannels(force);
 
-    // Sync stream URLs from the M3U playlist and/or Xtream API
-    if (config.PLAYLIST || config.XTREAM_ENABLED) {
-        await syncPlaylistChannels(force);
+    const alreadyMerged = config.XMLTV ? await populateDatabaseFromXMLTV(force, sourceChannels) : false;
+
+    // Merge stream URLs from the M3U playlist and/or Xtream API
+    if (alreadyMerged) {
+        logger.debug('Channels already merged during guide import');
+    } else if (sourceChannels.length > 0) {
+        await mergeChannelsIntoDatabase(sourceChannels);
+    } else {
+        logger.warn('No channels retrieved from any source; keeping existing database');
     }
 
     logger.debug('Database population completed');
@@ -43,53 +47,61 @@ export async function downloadCacheAndFillDb(force = false): Promise<void> {
 
 /**
  * Populates the database with channels and programmes extracted from XMLTV source.
- * 
- * @param force - Force download even if cache exists
+ * The guide is streamed and parsed on the fly, keeping only entries for playable
+ * channels, so full-provider guides of hundreds of MB are handled without
+ * loading them into memory.
+ *
+ * @param force - Force download even if the stored guide is still fresh
+ * @param sourceChannels - Playable channels to filter the guide to. When omitted,
+ *   channels with a stream URL already in the database are used.
+ * @returns True if the playable channels were already merged into the database
  */
-export async function populateDatabaseFromXMLTV(force = false): Promise<void> {
+export async function populateDatabaseFromXMLTV(force = false, sourceChannels?: ChannelEntry[]): Promise<boolean> {
+    let merged = false;
     logger.debug('Initiating database population from XMLTV source');
 
     const isStale = await isProgrammeDataStale();
 
     if (!isStale && !force) {
         logger.info('TV Schedule and channels are up to date');
-        return;
+        return false;
     }
 
-    logger.info('Fetching XMLTV...');
-    let xmltvContent: Buffer | null = await getCachedFile('xmltv.xml');
-
-    if (!xmltvContent || force) {
-        xmltvContent = await fetchWithRetry(config.XMLTV, 'xmltv.xml');
-        if (!xmltvContent) {
-            logger.error('Failed to fetch XMLTV content');
-            return;
-        }
+    const playable = sourceChannels ?? (await getChannelEntries()).filter(ch => ch.url);
+    const wanted = buildGuideFilter(playable);
+    if (wanted) {
+        logger.info(`Fetching XMLTV, keeping guide data for ${playable.length} channels...`);
+    } else {
+        logger.info('Fetching XMLTV...');
     }
 
-    const xmltvPath = await getCachedFilePath('xmltv.xml');
-    if (!xmltvPath) {
-        logger.error('Failed to get XMLTV cache path');
-        return;
+    // Keep an hour of past programmes so "now playing" is still correct at refresh
+    // time, and only XMLTV_DAYS of upcoming listings to keep the database small.
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const dropEndedBefore = nowSeconds - 3600;
+    const dropStartingAfter = config.XMLTV_DAYS > 0 ? nowSeconds + Math.round(config.XMLTV_DAYS * 86400) : undefined;
+    const parsedData = await streamWithRetry(config.XMLTV, stream => parseXMLTVStream(stream, { wanted, dropEndedBefore, dropStartingAfter }));
+
+    if (!parsedData) {
+        logger.error('Failed to fetch XMLTV content; keeping existing guide data');
+        return false;
     }
 
-    await fs.writeFile(xmltvPath, xmltvContent);
-    xmltvContent = null; // Release buffer from memory
-
-    const parsedData = await extractXMLTVData(xmltvPath);
+    if (wanted && parsedData.channels.length === 0 && parsedData.programmes.length === 0) {
+        logger.warn('No guide entries matched your channels. Check that tvg-id / Xtream epg_channel_id values match the guide\'s channel ids.');
+    }
 
     // Add channels from XMLTV if available
     if (parsedData.channels.length > 0) {
-        // Keep stream URLs from a previous playlist/Xtream sync so a programme-only
-        // refresh does not leave channels without anything to play.
-        const previousChannels = (await getChannelEntries()).filter(ch => ch.url);
-
         await clearChannels();
         await addChannels(parsedData.channels);
         logger.info(`Added ${parsedData.channels.length} channels from XMLTV`);
 
-        if (previousChannels.length > 0) {
-            await mergeChannelsIntoDatabase(previousChannels);
+        // Re-attach the playable channels so a programme-only refresh does not
+        // leave channels without anything to play.
+        if (playable.length > 0) {
+            await mergeChannelsIntoDatabase(playable);
+            merged = true;
         }
 
         // Log channel IDs for debugging
@@ -105,7 +117,9 @@ export async function populateDatabaseFromXMLTV(force = false): Promise<void> {
         const unmatchedChannels = Array.from(programmeChannels).filter(id => !channelIds.has(id));
 
         if (unmatchedChannels.length > 0) {
-            logger.warn(`Found programmes for channels not in XMLTV channel list: [${unmatchedChannels.join(', ')}]`);
+            const shown = unmatchedChannels.slice(0, 20).join(', ');
+            const more = unmatchedChannels.length > 20 ? ` and ${unmatchedChannels.length - 20} more` : '';
+            logger.warn(`Found programmes for channels not in XMLTV channel list: [${shown}]${more}`);
         }
 
         await clearProgrammes();
@@ -116,12 +130,15 @@ export async function populateDatabaseFromXMLTV(force = false): Promise<void> {
             acc[p.channel] = (acc[p.channel] || 0) + 1;
             return acc;
         }, {} as Record<string, number>);
-        logger.info(`Added programmes per channel: ${JSON.stringify(progsByChannel)}`);
+        logger.info(`Added ${parsedData.programmes.length} programmes for ${Object.keys(progsByChannel).length} channels`);
+        logger.debug(`Added programmes per channel: ${JSON.stringify(progsByChannel)}`);
     }
 
     // Release parsed data references
     parsedData.channels.length = 0;
     parsedData.programmes.length = 0;
+
+    return merged;
 }
 
 /**
@@ -133,26 +150,37 @@ export async function populateDatabaseFromXMLTV(force = false): Promise<void> {
 export async function syncPlaylistChannels(force = false): Promise<void> {
     logger.debug('Initiating channel synchronization');
 
-    const sourceChannels: ChannelEntry[] = [];
-
-    if (config.XTREAM_ENABLED) {
-        try {
-            sourceChannels.push(...await fetchXtreamChannels(force));
-        } catch (error) {
-            logger.error(`Error retrieving Xtream channels: ${error}`);
-        }
-    }
-
-    if (config.PLAYLIST) {
-        sourceChannels.push(...await fetchPlaylistChannels(force));
-    }
-
+    const sourceChannels = await fetchSourceChannels(force);
     if (sourceChannels.length === 0) {
         logger.warn('No channels retrieved from any source; keeping existing database');
         return;
     }
 
     await mergeChannelsIntoDatabase(sourceChannels);
+}
+
+/**
+ * Retrieves playable channels from every configured source (Xtream API and/or M3U playlist).
+ *
+ * @param force - Force download even if cache exists
+ * @returns Channels with stream URLs (empty if every source failed)
+ */
+export async function fetchSourceChannels(force = false): Promise<ChannelEntry[]> {
+    const sourceChannels: ChannelEntry[] = [];
+
+    if (config.XTREAM_ENABLED) {
+        try {
+            for (const ch of await fetchXtreamChannels(force)) sourceChannels.push(ch);
+        } catch (error) {
+            logger.error(`Error retrieving Xtream channels: ${error}`);
+        }
+    }
+
+    if (config.PLAYLIST) {
+        for (const ch of await fetchPlaylistChannels(force)) sourceChannels.push(ch);
+    }
+
+    return sourceChannels;
 }
 
 /**
@@ -227,49 +255,24 @@ export async function fetchPlaylistChannels(force = false): Promise<ChannelEntry
 
 /**
  * Merges source channels (with stream URLs) into the channels already in the database.
- * Channels are matched by tvg_name (falling back to tvg_id).
+ * Guide-only channels (no URL) from XMLTV are kept and enriched; channels from a
+ * previous sync that are no longer offered by any source are dropped, so a
+ * removed channel or a narrower category filter takes effect.
  *
  * @param sourceChannels - Channels from a playlist or Xtream source
  */
 export async function mergeChannelsIntoDatabase(sourceChannels: ChannelEntry[]): Promise<void> {
-    // Retrieve and merge with existing database channels
-    const existingChannels = await getChannelEntries();
+    const merged = mergeChannelLists(await getChannelEntries(), sourceChannels);
 
-    // Use tvg_name as the unique key instead of tvg_id to prevent duplicates
-    const channelMap = new Map(existingChannels.map(ch => [ch.tvg_name || ch.tvg_id, ch]));
-
-    logger.debug(`Located ${existingChannels.length} existing channels in database`);
-
-    // Integrate source channels with existing data
-    sourceChannels.forEach((sourceCh, index) => {
-        // Use tvg_name as the primary key for uniqueness
-        const channelKey = sourceCh.tvg_name || sourceCh.tvg_id || `playlist_${index}`;
-        const existingCh = channelMap.get(channelKey);
-
-        if (existingCh) {
-            // Update existing channel with source URL
-            existingCh.url = sourceCh.url;
-            if (sourceCh.group_title) existingCh.group_title = sourceCh.group_title;
-            if (sourceCh.tvg_logo) existingCh.tvg_logo = sourceCh.tvg_logo;
-            if (sourceCh.tvg_id) existingCh.tvg_id = sourceCh.tvg_id;
-            if (sourceCh.xui_id) existingCh.xui_id = sourceCh.xui_id;
-        } else {
-            // Add new channel from source
-            channelMap.set(channelKey, sourceCh);
-        }
-    });
-
-    // Persist merged channels to database
-    const mergedChannels = Array.from(channelMap.values());
-    if (mergedChannels.length > 0) {
+    if (merged.length > 0) {
         await clearChannels();
-        await addChannels(mergedChannels);
-        logger.info(`Synchronized ${mergedChannels.length} channels to database`);
+        await addChannels(merged);
+        logger.info(`Synchronized ${merged.length} channels to database`);
 
-        // Verify final channel list
-        const finalChannelIds = mergedChannels.map(ch => `${ch.tvg_name}(${ch.tvg_id})`).join(', ');
+        const finalChannelIds = merged.map(ch => `${ch.tvg_name}(${ch.tvg_id})`).join(', ');
         logger.debug(`Final database channels: [${finalChannelIds}]`);
     }
 }
 
+export { buildGuideFilter, mergeChannelLists } from './merge';
 export { scheduleIPTVRefresh, stopIPTVRefresh } from './schedulers';

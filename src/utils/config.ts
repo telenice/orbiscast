@@ -15,6 +15,7 @@ class Config {
     XTREAM_CATEGORIES: string[];
     XTREAM_EPG: boolean;
     REFRESH_IPTV: number;
+    XMLTV_DAYS: number;
     DEFAULT_STREAM_TIMEOUT: number;
     RAM_CACHE: boolean;
     DISCORD_BOT_TOKEN: string;
@@ -54,6 +55,9 @@ class Config {
         }
 
         this.REFRESH_IPTV = parseInt(env.REFRESH_IPTV?.trim() || '1440');
+        // Days of upcoming guide data to keep (0 = everything in the guide).
+        const xmltvDays = parseFloat(env.XMLTV_DAYS?.trim() || '3');
+        this.XMLTV_DAYS = Number.isFinite(xmltvDays) && xmltvDays >= 0 ? xmltvDays : 3;
         this.DEFAULT_STREAM_TIMEOUT = parseInt(env.DEFAULT_STREAM_TIMEOUT?.trim() || '10');
 
         // Cache configuration

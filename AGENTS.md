@@ -109,20 +109,29 @@ ordering: if you add a module that reads `process.env` at import time, import
 
 ### IPTV pipeline (`src/modules/iptv/`)
 
-- `downloadCacheAndFillDb()` is the entry point. If `XMLTV` is set it parses the
-  guide (channels + programmes), then `syncPlaylistChannels()` merges stream URLs
-  from the M3U (`PLAYLIST`) and/or the Xtream API (`XTREAM_*`). Playlist-only
-  mode is supported. When Xtream is configured and `XMLTV` is unset, `config`
+- `downloadCacheAndFillDb()` is the entry point. It fetches playable channels
+  from the M3U (`PLAYLIST`) and/or the Xtream API (`XTREAM_*`) first, then, if
+  `XMLTV` is set, streams the guide keeping only entries for those channels
+  (matched by tvg-id or name), then merges the stream URLs. Playlist-only mode is
+  supported. When Xtream is configured and `XMLTV` is unset, `config`
   points `XMLTV` at the provider's `xmltv.php`.
 - XMLTV refreshes keep stream URLs from the previous channel sync, so a
   programme-only refresh does not leave channels unplayable.
 - Never log raw stream or source URLs; pass them through
   `utils/redact.ts#redactUrl` (Xtream URLs embed the username and password).
-- `downloaders.ts` fetches with retries, exponential backoff, a 30s timeout and
-  a 50 MB size cap, caching results via `utils/cache`.
+- `downloaders.ts#fetchWithRetry` buffers small files (playlists, Xtream JSON)
+  with retries, a 30s timeout and a 50 MB cap, caching via `utils/cache`.
+  `streamWithRetry` streams large files (the XMLTV guide) with no size cap and
+  gunzips `.gz`/gzip content on the fly.
+- Channel merging lives in `merge.ts` (pure, unit-tested): guide-only channels
+  are kept, previously synced channels are rebuilt from the sources, and source
+  channels match guide channels by name, then by tvg-id.
 - `parsers/playlist-parser.ts` tries several `#EXTINF` attribute layouts.
-- `parsers/xmltv-parser.ts` uses `xml2js`; `utils.ts#parseDate` handles XMLTV
-  timestamps (`YYYYMMDDHHMMSS +/-HHMM`) as UTC.
+- `parsers/xmltv-parser.ts` is a streaming `sax` parser: it materialises one
+  `<channel>`/`<programme>` at a time (in xml2js shape), filters by wanted
+  channels and the `XMLTV_DAYS` window, and tolerates malformed XML. Never use
+  `Math.min(...arr)`/`push(...arr)` on guide-sized arrays (stack overflow).
+  `utils.ts#parseDate` handles XMLTV timestamps (`YYYYMMDDHHMMSS +/-HHMM`) as UTC.
 - `schedulers.ts` refreshes on `REFRESH_IPTV` (minutes).
 
 ### Streaming (`src/modules/streaming/index.ts`)
@@ -153,7 +162,7 @@ ordering: if you add a module that reads `process.env` at import time, import
 See `.env.example` and the README table. Required: `DISCORD_BOT_TOKEN`,
 `DISCORD_USER_TOKEN`, `GUILD`, plus either `PLAYLIST` or all of `XTREAM_HOST`,
 `XTREAM_USERNAME`, `XTREAM_PASSWORD`. Optional: `XMLTV`, `XTREAM_OUTPUT`,
-`XTREAM_CATEGORIES`, `XTREAM_EPG`,
+`XTREAM_CATEGORIES`, `XTREAM_EPG`, `XMLTV_DAYS`,
 `REFRESH_IPTV`, `RAM_CACHE`, `CACHE_DIR`, `DEBUG`, `DEFAULT_STREAM_TIMEOUT`,
 `TZ`, `MINIMIZE_LATENCY`, `BITRATE_VIDEO`, `BITRATE_VIDEO_MAX`,
 `DISABLE_TRANSCODE`.
