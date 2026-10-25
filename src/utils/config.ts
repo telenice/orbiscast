@@ -29,7 +29,6 @@ class Config {
     BITRATE_VIDEO: number;
     BITRATE_VIDEO_MAX: number;
     DISABLE_TRANSCODE: boolean;
-    SEAMLESS_SWITCHING: boolean;
     ENCODER: EncoderType;
     VAAPI_DEVICE: string;
     HARDWARE_DECODING: boolean;
@@ -94,8 +93,6 @@ class Config {
         this.BITRATE_VIDEO = parseInt(env.BITRATE_VIDEO?.trim() || '5000');
         this.BITRATE_VIDEO_MAX = parseInt(env.BITRATE_VIDEO_MAX?.trim() || '7500');
         this.DISABLE_TRANSCODE = env.DISABLE_TRANSCODE?.trim().toLowerCase() === 'true';
-        // Keep the Go Live stream open when changing channels (viewers stay in).
-        this.SEAMLESS_SWITCHING = env.SEAMLESS_SWITCHING?.trim().toLowerCase() !== 'false';
 
         // Transcoding configuration (only used when DISABLE_TRANSCODE is false)
         const encoder = env.ENCODER?.trim().toLowerCase() || 'software';

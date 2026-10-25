@@ -23,7 +23,6 @@
 - **HDR support:** HDR channels are detected and tone mapped so they don't look washed out.
 - **Smooth playback options:** re-encode streams into a Discord-friendly format, optionally capping resolution and frame rate (e.g. turn 4K 50 fps into 1080p 30 fps), or pass streams through untouched.
 - **GPU transcoding:** encode on an Intel or AMD GPU (VAAPI) instead of the CPU.
-- **Seamless channel changes:** switching channel swaps the picture inside the same Go Live stream, so viewers stay watching instead of having to rejoin.
 - **Automatic upkeep:** channels and guide refresh on a schedule, and the stream stops by itself when nobody is watching.
 - **Docker-ready**, with GPU drivers included in the image.
 
@@ -177,7 +176,6 @@ The guide is read as it downloads, and only listings for your channels are kept,
 | `VAAPI_DEVICE` | GPU device used with `ENCODER=vaapi`. | `/dev/dri/renderD128` |
 | `HARDWARE_DECODING` | Decode the source on the GPU as well. | `true` with `vaapi`, else `false` |
 | `MINIMIZE_LATENCY` | Reduce delay by disabling input buffering. Turn off if playback is choppy. | `true` |
-| `SEAMLESS_SWITCHING` | Keep the Go Live stream open when changing channels, so viewers don't have to rejoin. | `true` |
 | `DEFAULT_STREAM_TIMEOUT` | Minutes before the stream stops when nobody is watching. | `10` |
 
 **Transcoding or passthrough?** Passthrough (`DISABLE_TRANSCODE=true`) uses almost no CPU, but sends whatever your provider broadcasts, which can include 4K at 50 fps and video features Discord handles poorly. Transcoding produces a stream built for Discord, with a steady bitrate, frequent keyframes and no B-frames. It is the most reliable way to get smooth playback.

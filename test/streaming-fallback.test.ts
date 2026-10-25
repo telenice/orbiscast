@@ -35,7 +35,6 @@ async function loadStreaming() {
     process.env.ENCODER = 'vaapi';
     process.env.VAAPI_DEVICE = '/';
     process.env.DISABLE_TRANSCODE = 'false';
-    process.env.SEAMLESS_SWITCHING = 'false';
     delete process.env.HARDWARE_DECODING;
     return import('../src/modules/streaming/index.js');
 }

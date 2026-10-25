@@ -1,8 +1,6 @@
 import { Client } from '@lng2004/discord.js-selfbot-v13';
 import { Streamer, prepareStream, playStream, Utils } from '@dank074/discord-video-stream';
 import { redactUrl } from '../../utils/redact';
-import type { Readable } from 'stream';
-import { LiveSession, loadStreamInternals } from './session';
 import { existsSync } from 'fs';
 import { buildCapFilters, createEncoder, withVideoFilters } from './video';
 import { buildPlaybackPlans, buildToneMapFilters, describePlaybackPlan, isHdrStreamLine, isUsefulFfmpegLine } from './video-options';
@@ -38,8 +36,6 @@ export const LOW_LATENCY_INPUT_OPTIONS = ['-fflags', 'nobuffer', '-flags', 'low_
 
 const logger = getLogger();
 const streamer = new Streamer(new Client());
-const liveSession = new LiveSession(streamer);
-let seamlessUnavailableLogged = false;
 let abortController = new AbortController();
 let currentChannelEntry: ChannelEntry | null = null;
 let streamSpectatorMonitor: ReturnType<typeof setInterval> | null = null;
@@ -337,8 +333,7 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         if (outcome !== 'failed-to-start' && outcome !== 'stopped' && index > 0) {
             workingPlanByUrl.set(channelEntry.url, index);
         }
-        if (outcome !== 'stopped') {
-            // The source ended or failed for good: end the Go Live session too.
+        if (outcome === 'failed-to-start' || outcome === 'failed') {
             await stopStreaming();
         }
         return;
@@ -360,9 +355,8 @@ async function playOnce(channelEntry: ChannelEntry, plan: PlaybackPlan, logPlan:
     let restartForHdr = false;
 
     try {
-        // Stop the previous source but keep the Go Live session open, so
-        // viewers stay in the stream while the channel changes.
-        await stopPlayback();
+        logger.info(`Stopping any possible existing stream.`);
+        await stopStreaming();
 
         // Capture the signal for this playback run. `stopStreaming` swaps in a
         // fresh controller, so checking the module-level one later could race.
@@ -439,7 +433,9 @@ async function playOnce(channelEntry: ChannelEntry, plan: PlaybackPlan, logPlan:
         const cleanupMonitoring = startSpectatorMonitoring();
 
         try {
-            await playIntoDiscord(output, signal);
+            await playStream(output, streamer, {
+                type: 'go-live',
+            }, signal);
         } finally {
             // Always cleanup monitoring regardless of success or failure
             cleanupMonitoring();
@@ -461,10 +457,9 @@ async function playOnce(channelEntry: ChannelEntry, plan: PlaybackPlan, logPlan:
 }
 
 /**
- * Stops the current source (FFmpeg and its feed into Discord) without ending
- * the Go Live session, so a new channel can start without kicking viewers.
+ * Stops the current stream and cleans up resources
  */
-async function stopPlayback() {
+export async function stopStreaming() {
     try {
         abortController.abort();
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -487,35 +482,4 @@ async function stopPlayback() {
     } catch (error) {
         logger.error(`Error stopping stream: ${error}`);
     }
-}
-
-/**
- * Stops streaming completely: stops the current source and ends the Go Live
- * session for everyone.
- */
-export async function stopStreaming() {
-    await stopPlayback();
-    liveSession.end();
-}
-
-/**
- * Feeds FFmpeg's output into Discord. With SEAMLESS_SWITCHING the Go Live
- * session is kept open across channel changes; otherwise (or if the library
- * internals it needs are unavailable) each source gets its own session.
- */
-async function playIntoDiscord(output: Readable, signal: AbortSignal): Promise<void> {
-    if (config.SEAMLESS_SWITCHING) {
-        try {
-            await loadStreamInternals();
-        } catch (error) {
-            if (!seamlessUnavailableLogged) {
-                logger.warn(`Seamless channel switching unavailable, using a new stream per channel: ${error}`);
-                seamlessUnavailableLogged = true;
-            }
-            return playStream(output, streamer, { type: 'go-live' }, signal);
-        }
-        return liveSession.play(output, signal);
-    }
-    liveSession.end();
-    return playStream(output, streamer, { type: 'go-live' }, signal);
 }
