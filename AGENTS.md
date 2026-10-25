@@ -147,6 +147,11 @@ ordering: if you add a module that reads `process.env` at import time, import
   (`streaming/video-options.ts`, pure, imported by `config`) are injected as
   encoder `outFilters` so they run before VAAPI's `hwupload`. Caps use
   `min(ih,N)` / `min(source_fps,N)` so sources are never upscaled.
+- `startStreaming` tries `buildPlaybackPlans()` in order (configured setup,
+  then CPU decoding, then CPU encoding). An attempt that throws within 20s is
+  "failed to start" and triggers the next plan; the working plan index is
+  remembered per stream URL in memory. On failure the last FFmpeg stderr lines
+  are logged (redacted).
 - discord-video-stream's `minimizeLatency` emits an invalid `-flags lowdelay`;
   keep it `false` and pass `LOW_LATENCY_INPUT_OPTIONS` via `customInputOptions`.
   The returned FFmpeg promise is explicitly handled so it never becomes an

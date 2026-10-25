@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCapFilters, isUsefulFfmpegLine, parseFrameRate, parseResolution } from '../src/modules/streaming/video-options';
+import { buildCapFilters, buildPlaybackPlans, describePlaybackPlan, isUsefulFfmpegLine, parseFrameRate, parseResolution } from '../src/modules/streaming/video-options';
 import { createEncoder, withVideoFilters } from '../src/modules/streaming/video';
 
 describe('parseResolution', () => {
@@ -96,5 +96,34 @@ describe('isUsefulFfmpegLine', () => {
         expect(isUsefulFfmpegLine('[http @ 0x1] HTTP error 404 Not Found')).toBe(true);
         expect(isUsefulFfmpegLine('Error opening input files: Invalid data found when processing input')).toBe(true);
         expect(isUsefulFfmpegLine('  Stream #0:0: Video: hevc (Main 10), yuv420p10le, 3840x2160')).toBe(true);
+    });
+});
+
+describe('buildPlaybackPlans', () => {
+    it('falls back from GPU decoding to CPU decoding to CPU encoding', () => {
+        expect(buildPlaybackPlans({ transcoding: true, encoder: 'vaapi', hardwareDecoding: true })).toEqual([
+            { hardwareDecoding: true, encoder: 'vaapi' },
+            { hardwareDecoding: false, encoder: 'vaapi' },
+            { hardwareDecoding: false, encoder: 'software' },
+        ]);
+    });
+
+    it('skips steps that are already off', () => {
+        expect(buildPlaybackPlans({ transcoding: true, encoder: 'vaapi', hardwareDecoding: false })).toEqual([
+            { hardwareDecoding: false, encoder: 'vaapi' },
+            { hardwareDecoding: false, encoder: 'software' },
+        ]);
+        expect(buildPlaybackPlans({ transcoding: true, encoder: 'software', hardwareDecoding: false })).toEqual([
+            { hardwareDecoding: false, encoder: 'software' },
+        ]);
+    });
+
+    it('has a single attempt in passthrough mode', () => {
+        expect(buildPlaybackPlans({ transcoding: false, encoder: 'vaapi', hardwareDecoding: true })).toHaveLength(1);
+    });
+
+    it('describes plans for the log', () => {
+        expect(describePlaybackPlan({ hardwareDecoding: true, encoder: 'vaapi' })).toBe('GPU decoding + GPU (vaapi) encoding');
+        expect(describePlaybackPlan({ hardwareDecoding: false, encoder: 'software' })).toBe('CPU decoding + CPU encoding');
     });
 });

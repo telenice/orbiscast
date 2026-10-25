@@ -61,3 +61,42 @@ export function isUsefulFfmpegLine(line: string): boolean {
     if (!text) return false;
     return !/^(ffmpeg version|built with|configuration:|lib(avutil|avcodec|avformat|avdevice|avfilter|swscale|swresample|postproc)\b)/.test(text);
 }
+
+/**
+ * How one playback attempt decodes and encodes the video.
+ */
+export interface PlaybackPlan {
+    hardwareDecoding: boolean;
+    encoder: EncoderType;
+}
+
+/**
+ * Builds the ordered list of playback attempts for a stream. The configured
+ * setup comes first; if it fails to start, GPU decoding is dropped, then (for
+ * VAAPI) GPU encoding, so a channel the GPU can't handle still plays on the CPU.
+ * Passthrough streams have nothing to fall back to.
+ *
+ * @param options - Configured transcoding, encoder and hardware decoding
+ * @returns Attempts in order, without duplicates
+ */
+export function buildPlaybackPlans(options: { transcoding: boolean; encoder: EncoderType; hardwareDecoding: boolean }): PlaybackPlan[] {
+    if (!options.transcoding) {
+        return [{ hardwareDecoding: false, encoder: options.encoder }];
+    }
+    const plans: PlaybackPlan[] = [{ hardwareDecoding: options.hardwareDecoding, encoder: options.encoder }];
+    if (options.hardwareDecoding) {
+        plans.push({ hardwareDecoding: false, encoder: options.encoder });
+    }
+    if (options.encoder !== 'software') {
+        plans.push({ hardwareDecoding: false, encoder: 'software' });
+    }
+    return plans;
+}
+
+/**
+ * Describes a playback plan for logs, e.g. "GPU decoding + vaapi encoding".
+ */
+export function describePlaybackPlan(plan: PlaybackPlan): string {
+    const encoding = plan.encoder === 'software' ? 'CPU encoding' : `GPU (${plan.encoder}) encoding`;
+    return `${plan.hardwareDecoding ? 'GPU' : 'CPU'} decoding + ${encoding}`;
+}

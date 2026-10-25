@@ -3,7 +3,8 @@ import { Streamer, prepareStream, playStream, Utils } from '@dank074/discord-vid
 import { redactUrl } from '../../utils/redact';
 import { existsSync } from 'fs';
 import { buildCapFilters, createEncoder, withVideoFilters } from './video';
-import { isUsefulFfmpegLine } from './video-options';
+import { buildPlaybackPlans, describePlaybackPlan, isUsefulFfmpegLine } from './video-options';
+import type { PlaybackPlan } from './video-options';
 import type { EncoderType } from './video';
 import { getLogger } from '../../utils/logger';
 import { config } from '../../utils/config';
@@ -279,8 +280,23 @@ function startSpectatorMonitoring(): () => void {
 }
 
 /**
- * Starts streaming the specified channel to a Discord voice channel
- * @param channelEntry - Channel information containing stream URL and metadata
+ * Channels (by stream URL) that only started after falling back, mapped to the
+ * playback plan that worked, so later plays skip the failing GPU setup.
+ */
+const workingPlanByUrl = new Map<string, number>();
+
+/** A stream that fails within this window is treated as "failed to start". */
+const START_FAILURE_WINDOW_MS = 20_000;
+
+type PlayOutcome = 'finished' | 'stopped' | 'failed-to-start' | 'failed';
+
+/**
+ * Starts streaming a channel to the voice channel the streamer is in. If the
+ * configured GPU setup can't handle a channel (it fails to start), playback is
+ * retried with CPU decoding, then CPU encoding, and the working setup is
+ * remembered for that channel.
+ *
+ * @param channelEntry - Channel to stream
  */
 export async function startStreaming(channelEntry: ChannelEntry) {
     if (!streamer.client.isReady()) {
@@ -288,8 +304,46 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         return;
     }
 
+    const plans = buildPlaybackPlans({
+        transcoding: !config.DISABLE_TRANSCODE,
+        encoder: config.ENCODER,
+        hardwareDecoding: config.HARDWARE_DECODING,
+    });
+    const first = Math.min(workingPlanByUrl.get(channelEntry.url) ?? 0, plans.length - 1);
+    if (first > 0) {
+        logger.info(`Using ${describePlaybackPlan(plans[first]!)} for ${channelEntry.tvg_name} (it failed with the GPU before)`);
+    }
+
+    for (let index = first; index < plans.length; index++) {
+        const plan = plans[index]!;
+        const outcome = await playOnce(channelEntry, plan, plans.length > 1);
+
+        if (outcome === 'failed-to-start' && index < plans.length - 1) {
+            logger.warn(`${channelEntry.tvg_name} failed to start with ${describePlaybackPlan(plan)}; retrying with ${describePlaybackPlan(plans[index + 1]!)}`);
+            continue;
+        }
+        if (outcome !== 'failed-to-start' && outcome !== 'stopped' && index > 0) {
+            workingPlanByUrl.set(channelEntry.url, index);
+        }
+        if (outcome === 'failed-to-start' || outcome === 'failed') {
+            await stopStreaming();
+        }
+        return;
+    }
+}
+
+/**
+ * Runs a single playback attempt until the stream ends, is stopped, or fails.
+ *
+ * @param channelEntry - Channel to stream
+ * @param plan - How to decode and encode
+ * @param logPlan - Whether to mention the plan in the log
+ * @returns How the attempt ended
+ */
+async function playOnce(channelEntry: ChannelEntry, plan: PlaybackPlan, logPlan: boolean): Promise<PlayOutcome> {
     let signal = abortController.signal;
     const ffmpegLog: string[] = [];
+    const startedAt = Date.now();
 
     try {
         logger.info(`Stopping any possible existing stream.`);
@@ -299,10 +353,11 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         // fresh controller, so checking the module-level one later could race.
         signal = abortController.signal;
 
-        logger.info(`Attempting to stream: ${channelEntry.tvg_name} (${redactUrl(channelEntry.url)})`);
+        const planNote = logPlan && !config.DISABLE_TRANSCODE ? ` with ${describePlaybackPlan(plan)}` : '';
+        logger.info(`Attempting to stream: ${channelEntry.tvg_name} (${redactUrl(channelEntry.url)})${planNote}`);
 
         const encoder = withVideoFilters(
-            createEncoder(activeEncoder(), config.VAAPI_DEVICE),
+            createEncoder(plan.encoder === 'software' ? 'software' : activeEncoder(), config.VAAPI_DEVICE),
             buildCapFilters(config.STREAM_RESOLUTION, config.STREAM_FPS)
         );
 
@@ -317,7 +372,7 @@ export async function startStreaming(channelEntry: ChannelEntry) {
             bitrateVideoMax: config.BITRATE_VIDEO_MAX,
             videoCodec: Utils.normalizeVideoCodec('H264'),
             encoder,
-            hardwareAcceleratedDecoding: !config.DISABLE_TRANSCODE && config.HARDWARE_DECODING,
+            hardwareAcceleratedDecoding: !config.DISABLE_TRANSCODE && plan.hardwareDecoding,
         }, signal);
 
         currentChannelEntry = channelEntry;
@@ -336,13 +391,7 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         // rejection; actual playback is driven by `playStream` below.
         promise.catch((err: unknown) => {
             if (!signal.aborted) {
-                logger.error(`FFmpeg process error: ${redactUrl(String(err))}`);
-            }
-        });
-
-        command.on('error', (err: unknown) => {
-            if (!signal.aborted) {
-                logger.error(`FFmpeg ${redactUrl(String(err))}`);
+                logger.warn(`FFmpeg exited: ${redactUrl(String(err)).split("\n")[0]}`);
             }
         });
 
@@ -362,16 +411,18 @@ export async function startStreaming(channelEntry: ChannelEntry) {
             // Always cleanup monitoring regardless of success or failure
             cleanupMonitoring();
         }
+        return signal.aborted ? 'stopped' : 'finished';
     } catch (error) {
         // A cancelled stream is expected during stop; the caller is already
         // cleaning up, so only log/handle genuine failures.
-        if (!signal.aborted) {
-            logger.error(`Error starting stream: ${error}`);
-            if (ffmpegLog.length > 0) {
-                logger.error(`Last FFmpeg output:\n${ffmpegLog.map(line => redactUrl(line)).join('\n')}`);
-            }
-            await stopStreaming();
+        if (signal.aborted) {
+            return 'stopped';
         }
+        logger.error(`Error starting stream: ${redactUrl(String(error))}`);
+        if (ffmpegLog.length > 0) {
+            logger.error(`Last FFmpeg output:\n${ffmpegLog.map(line => redactUrl(line)).join('\n')}`);
+        }
+        return Date.now() - startedAt < START_FAILURE_WINDOW_MS ? 'failed-to-start' : 'failed';
     }
 }
 
