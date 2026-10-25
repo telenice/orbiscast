@@ -40,7 +40,7 @@ export async function executeStreamChannel(
         const channels = await getChannelEntries();
         const channel = channels.find(ch => ch.tvg_name?.toLowerCase() === channelName.toLowerCase());
 
-        if (!channel || !channel.tvg_id) {
+        if (!channel || !channel.url) {
             return { success: false, message: `Channel not found: ${channelName}` };
         }
 
@@ -60,7 +60,7 @@ export async function executeStreamChannel(
             await new Promise(resolve => setTimeout(resolve, 750));
 
             const allProgrammes = await getProgrammeEntries();
-            const channelProgrammes = allProgrammes.filter(p => p.channel === channel.tvg_id);
+            const channelProgrammes = channel.tvg_id ? allProgrammes.filter(p => p.channel === channel.tvg_id) : [];
             const now = Math.floor(Date.now() / 1000);
 
             const currentProgramme = channelProgrammes.find(p =>

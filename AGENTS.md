@@ -156,6 +156,16 @@ ordering: if you add a module that reads `process.env` at import time, import
 - A spectator monitor stops the stream after `DEFAULT_STREAM_TIMEOUT` minutes
   with no non-bot viewers.
 
+### Guide search (`/search`)
+
+- `iptv/search.ts#searchProgrammes` is pure: accent/punctuation-insensitive,
+  every query word must match the title/subtitle (ranked first) or description,
+  finished programmes and unplayable channels are skipped, and all channels
+  sharing an EPG id are returned per programme.
+- `embeds/search.ts` renders results with Discord `<t:...>` timestamps (shown
+  in each viewer's own time zone); `commands/search.ts` adds one watch button
+  per result (custom IDs carry the result index to stay unique).
+
 ### Discord bot (`src/utils/discord.ts`)
 
 - Registers guild slash commands on `ready` and dispatches interactions.

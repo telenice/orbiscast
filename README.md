@@ -203,6 +203,7 @@ The bot can be controlled using the following commands:
 | `/stream <channel>` | Start streaming the specified channel. |
 | `/programme <channel>` | Show the current programme for the specified channel. |
 | `/channels <page>` | List all available channels. Page is optional. |
+| `/search <query>` | Search the TV guide (e.g. `liverpool`) and see when it's on and on which channels, with buttons to watch. |
 | `/stop` | Stop the current stream. |
 | `/refresh <type>` | Refresh the specified data. Type can be "all", "channels", or "programme". |
 
