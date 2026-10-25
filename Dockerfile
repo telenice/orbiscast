@@ -20,9 +20,20 @@ RUN npm run build && npm prune --omit=dev
 # node-datachannel needs GLIBC_2.38+. Debian trixie provides glibc 2.41.
 FROM node:22-trixie-slim
 
-# FFmpeg with libzmq (for the azmq audio filter used by discord-video-stream)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+# FFmpeg with libzmq (for the azmq audio filter used by discord-video-stream),
+# plus VAAPI drivers for GPU transcoding (ENCODER=vaapi):
+#   - intel-media-va-driver-non-free: Intel Broadwell (5th gen) and newer, incl. encoding
+#   - i965-va-driver: older Intel GPUs
+#   - mesa-va-drivers: AMD GPUs
+#   - vainfo: run `docker exec orbiscast vainfo` to check the GPU is visible
+# The Intel drivers only exist for amd64, so they are skipped on other architectures.
+RUN arch="$(dpkg --print-architecture)" \
+    && sed -i 's/^Components: main$/Components: main non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg mesa-va-drivers vainfo \
+    && if [ "$arch" = "amd64" ]; then \
+        apt-get install -y --no-install-recommends intel-media-va-driver-non-free i965-va-driver; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

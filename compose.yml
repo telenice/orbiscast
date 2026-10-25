@@ -23,3 +23,6 @@ services:
     # ... other required variables, see .env.example and README.md
     env_file:
       - .env
+    # For GPU transcoding (ENCODER=vaapi with an Intel or AMD GPU), pass the GPU through:
+    # devices:
+    #   - /dev/dri:/dev/dri

@@ -2,6 +2,8 @@ import { existsSync } from 'fs';
 import { getLogger } from './logger';
 import { buildXtreamXmltvUrl, parseCategoryFilter } from '../modules/iptv/parsers/xtream-parser';
 import type { XtreamOutput } from '../modules/iptv/parsers/xtream-parser';
+import { parseFrameRate, parseResolution } from '../modules/streaming/video-options';
+import type { EncoderType } from '../modules/streaming/video-options';
 
 const logger = getLogger();
 
@@ -27,6 +29,11 @@ class Config {
     BITRATE_VIDEO: number;
     BITRATE_VIDEO_MAX: number;
     DISABLE_TRANSCODE: boolean;
+    ENCODER: EncoderType;
+    VAAPI_DEVICE: string;
+    HARDWARE_DECODING: boolean;
+    STREAM_RESOLUTION: number;
+    STREAM_FPS: number;
 
     constructor() {
         logger.info('Loading environment variables');
@@ -85,6 +92,29 @@ class Config {
         this.BITRATE_VIDEO = parseInt(env.BITRATE_VIDEO?.trim() || '5000');
         this.BITRATE_VIDEO_MAX = parseInt(env.BITRATE_VIDEO_MAX?.trim() || '7500');
         this.DISABLE_TRANSCODE = env.DISABLE_TRANSCODE?.trim().toLowerCase() === 'true';
+
+        // Transcoding configuration (only used when DISABLE_TRANSCODE is false)
+        const encoder = env.ENCODER?.trim().toLowerCase() || 'software';
+        if (encoder !== 'software' && encoder !== 'vaapi') {
+            logger.warn(`Unknown ENCODER "${encoder}", using software`);
+        }
+        this.ENCODER = encoder === 'vaapi' ? 'vaapi' : 'software';
+        this.VAAPI_DEVICE = env.VAAPI_DEVICE?.trim() || '/dev/dri/renderD128';
+        // Hardware decoding defaults to on with a GPU encoder; set explicitly to override.
+        const hwDecode = env.HARDWARE_DECODING?.trim().toLowerCase();
+        this.HARDWARE_DECODING = hwDecode ? hwDecode === 'true' : this.ENCODER === 'vaapi';
+        // Unset (or 0) keeps the source resolution / frame rate.
+        this.STREAM_RESOLUTION = parseResolution(env.STREAM_RESOLUTION);
+        this.STREAM_FPS = parseFrameRate(env.STREAM_FPS);
+        if (env.STREAM_RESOLUTION?.trim() && !this.STREAM_RESOLUTION) {
+            logger.warn(`Invalid STREAM_RESOLUTION "${env.STREAM_RESOLUTION}", keeping source resolution`);
+        }
+        if (env.STREAM_FPS?.trim() && !this.STREAM_FPS) {
+            logger.warn(`Invalid STREAM_FPS "${env.STREAM_FPS}", keeping source frame rate`);
+        }
+        if (this.DISABLE_TRANSCODE && (this.ENCODER !== 'software' || this.STREAM_RESOLUTION || this.STREAM_FPS)) {
+            logger.warn('ENCODER, STREAM_RESOLUTION and STREAM_FPS have no effect while DISABLE_TRANSCODE=true');
+        }
 
         // Debug configuration
         this.DEBUG = env.DEBUG?.trim().toLowerCase() === 'true';

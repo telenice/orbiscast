@@ -154,6 +154,11 @@ The application uses the following environment variables, which should be define
 | `BITRATE_VIDEO`          | Video bitrate in Kbps.                                                | `5000`                                | ✘        |
 | `BITRATE_VIDEO_MAX`      | Maximum video bitrate in Kbps.                                        | `7500`                                | ✘        |
 | `DISABLE_TRANSCODE`      | Disable transcoding and pass stream through directly.                 | `false`                               | ✘        |
+| `ENCODER`                | Video encoder when transcoding: `software` (CPU) or `vaapi` (GPU).    | `software`                            | ✘        |
+| `VAAPI_DEVICE`           | GPU render node used with `ENCODER=vaapi`.                            | `/dev/dri/renderD128`                 | ✘        |
+| `HARDWARE_DECODING`      | Decode the source on the GPU too. Defaults to on with `vaapi`.        | `false`                               | ✘        |
+| `STREAM_RESOLUTION`      | Maximum output height, e.g. `1080` or `720`. Unset keeps the source.  | *(source)*                            | ✘        |
+| `STREAM_FPS`             | Maximum output frame rate, e.g. `30`. Unset keeps the source.         | *(source)*                            | ✘        |
 
 \* Configure **either** `PLAYLIST` **or** all three of `XTREAM_HOST`, `XTREAM_USERNAME` and `XTREAM_PASSWORD`. If both are set, channels from both sources are merged.
 
@@ -165,6 +170,19 @@ Xtream accounts often contain thousands of channels; use `XTREAM_CATEGORIES` to 
 
 > [!TIP]
 > There is a bunch of IPTV providers online. I recommend using a tool like [Threadfin](https://github.com/Threadfin/Threadfin) or [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) to sort out your IPTV channels. You can find public M3U playlists [here](https://github.com/iptv-org/iptv). More info on IPTV can be found [here](https://github.com/iptv-org/awesome-iptv).
+
+#### Transcoding, GPU encoding and output caps
+
+When transcoding (`DISABLE_TRANSCODE=false`), OrbisCast re-encodes the stream to H.264 with no B-frames, a keyframe every second and the configured bitrate, which is the most reliable way to get smooth playback in Discord. By default it keeps the source's resolution and frame rate. Set `STREAM_RESOLUTION` and/or `STREAM_FPS` to cap them: sources above a cap are scaled down, sources at or below it are left untouched (never upscaled). For example `STREAM_RESOLUTION=1080` and `STREAM_FPS=30` turn a 2160p 50 fps channel into 1080p 30 fps, while a 720p 25 fps channel stays as it is. These settings have no effect with `DISABLE_TRANSCODE=true`.
+
+To encode on an Intel (or AMD) GPU instead of the CPU, set `ENCODER=vaapi` and pass the GPU into the container:
+
+```yaml
+    devices:
+      - /dev/dri:/dev/dri
+```
+
+The Docker image includes the Intel and AMD VAAPI drivers. Run `docker exec orbiscast vainfo` to check the GPU is visible; it should list `VAEntrypointEncSlice` for H.264. If the device is missing, OrbisCast logs an error and falls back to CPU encoding. If the host has more than one GPU, set `VAAPI_DEVICE` to the right render node (`ls /dev/dri`).
 
 ### Discord Configuration
 

@@ -47,7 +47,8 @@ prebuilt native bindings that require a recent **glibc** (node-datachannel needs
 uses `node:22-trixie-slim` (glibc 2.41), not Alpine (musl) — Alpine fails with
 `Error loading shared library libmvec.so.1`, and `bookworm` (glibc 2.36) fails
 with `version 'GLIBC_2.38' not found`. The runtime image installs Debian
-`ffmpeg`, which includes `azmq`.
+`ffmpeg`, which includes `azmq`, plus VAAPI drivers (Intel non-free driver
+from Debian `non-free` on amd64, `i965`, Mesa) for `ENCODER=vaapi`.
 
 ## Repository layout
 
@@ -141,7 +142,13 @@ ordering: if you add a module that reads `process.env` at import time, import
   so a stuck voice handshake cannot hang a slash command. Prefer this over
   checking connection state yourself.
 - `startStreaming(channel)` builds an FFmpeg pipeline with `prepareStream`
-  (software encoder, H.264) and plays it with `playStream` in `go-live` mode.
+  (H.264; libx264 or VAAPI per `ENCODER`) and plays it with `playStream` in
+  `go-live` mode. `streaming/video.ts` builds the encoder; resolution/fps caps
+  (`streaming/video-options.ts`, pure, imported by `config`) are injected as
+  encoder `outFilters` so they run before VAAPI's `hwupload`. Caps use
+  `min(ih,N)` / `min(source_fps,N)` so sources are never upscaled.
+- discord-video-stream's `minimizeLatency` emits an invalid `-flags lowdelay`;
+  keep it `false` and pass `LOW_LATENCY_INPUT_OPTIONS` via `customInputOptions`.
   The returned FFmpeg promise is explicitly handled so it never becomes an
   unhandled rejection.
 - `stopStreaming()` aborts playback, clears the spectator monitor and resets
@@ -165,7 +172,8 @@ See `.env.example` and the README table. Required: `DISCORD_BOT_TOKEN`,
 `XTREAM_CATEGORIES`, `XTREAM_EPG`, `XMLTV_DAYS`,
 `REFRESH_IPTV`, `RAM_CACHE`, `CACHE_DIR`, `DEBUG`, `DEFAULT_STREAM_TIMEOUT`,
 `TZ`, `MINIMIZE_LATENCY`, `BITRATE_VIDEO`, `BITRATE_VIDEO_MAX`,
-`DISABLE_TRANSCODE`.
+`DISABLE_TRANSCODE`, `ENCODER`, `VAAPI_DEVICE`, `HARDWARE_DECODING`,
+`STREAM_RESOLUTION`, `STREAM_FPS`.
 
 `RAM_CACHE` defaults to `true` but only takes effect when `/dev/shm` exists
 (Linux). Otherwise it falls back to `CACHE_DIR` (default `../cache`).

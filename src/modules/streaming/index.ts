@@ -1,9 +1,29 @@
 import { Client } from '@lng2004/discord.js-selfbot-v13';
-import { Streamer, prepareStream, playStream, Utils, Encoders } from '@dank074/discord-video-stream';
+import { Streamer, prepareStream, playStream, Utils } from '@dank074/discord-video-stream';
 import { redactUrl } from '../../utils/redact';
+import { existsSync } from 'fs';
+import { buildCapFilters, createEncoder, withVideoFilters } from './video';
+import type { EncoderType } from './video';
 import { getLogger } from '../../utils/logger';
 import { config } from '../../utils/config';
 import type { ChannelEntry } from '../../interfaces/iptv';
+
+let vaapiFallbackLogged = false;
+
+/**
+ * Returns the encoder to use, falling back to software when the configured
+ * VAAPI device is not available (e.g. /dev/dri not passed to the container).
+ */
+function activeEncoder(): EncoderType {
+    if (config.ENCODER === 'vaapi' && !existsSync(config.VAAPI_DEVICE)) {
+        if (!vaapiFallbackLogged) {
+            logger.error(`VAAPI device ${config.VAAPI_DEVICE} not found; falling back to software encoding. Pass /dev/dri to the container.`);
+            vaapiFallbackLogged = true;
+        }
+        return 'software';
+    }
+    return config.ENCODER;
+}
 
 /**
  * Low-latency FFmpeg input options (replacement for the library's minimizeLatency).
@@ -277,10 +297,10 @@ export async function startStreaming(channelEntry: ChannelEntry) {
 
         logger.info(`Attempting to stream: ${channelEntry.tvg_name} (${redactUrl(channelEntry.url)})`);
 
-        const encoder = Encoders.software({
-            x264: { preset: 'veryfast' },
-            x265: { preset: 'veryfast' },
-        });
+        const encoder = withVideoFilters(
+            createEncoder(activeEncoder(), config.VAAPI_DEVICE),
+            buildCapFilters(config.STREAM_RESOLUTION, config.STREAM_FPS)
+        );
 
         const { command, output, promise } = prepareStream(channelEntry.url, {
             noTranscoding: config.DISABLE_TRANSCODE,
@@ -293,6 +313,7 @@ export async function startStreaming(channelEntry: ChannelEntry) {
             bitrateVideoMax: config.BITRATE_VIDEO_MAX,
             videoCodec: Utils.normalizeVideoCodec('H264'),
             encoder,
+            hardwareAcceleratedDecoding: !config.DISABLE_TRANSCODE && config.HARDWARE_DECODING,
         }, signal);
 
         currentChannelEntry = channelEntry;
