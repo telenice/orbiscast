@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChannelChoices, sanitizeChannelId, findChannelBySanitizedId } from '../src/utils/channels';
+import { buildChannelChoices, channelDisplayName, channelKey, findChannel, sanitizeChannelId, findChannelBySanitizedId } from '../src/utils/channels';
 import type { ChannelEntry } from '../src/interfaces/iptv';
 
 function channel(tvg_name: string): ChannelEntry {
@@ -41,30 +41,33 @@ describe('findChannelBySanitizedId', () => {
 });
 
 describe('buildChannelChoices', () => {
-    const ch = (tvg_name: string, group_title = ''): ChannelEntry => ({ xui_id: 0, tvg_name, group_title, url: 'u' });
+    const ch = (tvg_name: string, group_title = ''): ChannelEntry => ({ xui_id: 0, tvg_name, group_title, url: `http://x/${tvg_name}/${group_title}` });
     const channels = [
         ch('BBC One HD', 'UK | Entertainment'),
         ch('Sky Sports Main Event', 'UK | Sports'),
         ch('TNT Sports 1', 'UK | Sports'),
         ch('No Category Channel'),
     ];
+    const names = (choices: { name: string }[]) => choices.map(c => c.name);
 
-    it('labels choices "Channel | Category" and keeps the name as the value', () => {
+    it('labels choices "Channel | Category" and uses the channel key as the value', () => {
         expect(buildChannelChoices(channels, 'bbc')).toEqual([
-            { name: 'BBC One HD | UK | Entertainment', value: 'BBC One HD' },
+            { name: 'BBC One HD | UK | Entertainment', value: channelKey(channels[0]!) },
         ]);
     });
 
     it('omits the separator when there is no category', () => {
-        expect(buildChannelChoices(channels, 'no cat')).toEqual([
-            { name: 'No Category Channel', value: 'No Category Channel' },
-        ]);
+        expect(names(buildChannelChoices(channels, 'no cat'))).toEqual(['No Category Channel']);
     });
 
     it('lists name matches before category matches', () => {
-        const values = buildChannelChoices([ch('Sports News', 'UK | News'), ...channels], 'sports').map(c => c.value);
-        expect(values.slice(0, 3)).toEqual(['Sports News', 'Sky Sports Main Event', 'TNT Sports 1']);
-        expect(buildChannelChoices(channels, 'entertainment').map(c => c.value)).toEqual(['BBC One HD']);
+        const list = [ch('Sports News', 'UK | News'), ...channels];
+        expect(names(buildChannelChoices(list, 'sports')).slice(0, 3)).toEqual([
+            'Sports News | UK | News',
+            'Sky Sports Main Event | UK | Sports',
+            'TNT Sports 1 | UK | Sports',
+        ]);
+        expect(names(buildChannelChoices(channels, 'entertainment'))).toEqual(['BBC One HD | UK | Entertainment']);
     });
 
     it('stays within Discord limits', () => {
@@ -72,12 +75,43 @@ describe('buildChannelChoices', () => {
         const [choice] = buildChannelChoices([long], '');
         expect(choice!.name.length).toBeLessThanOrEqual(100);
         expect(choice!.name).toContain(' | YYY');
-        expect(choice!.value.length).toBe(100);
+        expect(choice!.value.length).toBeLessThanOrEqual(100);
         const many = Array.from({ length: 40 }, (_, i) => ch(`Channel ${i}`));
         expect(buildChannelChoices(many, '')).toHaveLength(25);
     });
 
-    it('does not repeat a channel name', () => {
-        expect(buildChannelChoices([ch('Dup', 'A'), ch('Dup', 'B')], 'dup')).toHaveLength(1);
+    it('keeps same-named channels from different categories apart', () => {
+        const amc = [ch('AMC', 'US | Entertainment'), ch('AMC', 'CA | Movies'), ch('AMC', 'EU | General Channels'), ch('AMC Thrillers', 'US | Movies')];
+        const choices = buildChannelChoices(amc, 'amc');
+        expect(names(choices)).toEqual([
+            'AMC | US | Entertainment',
+            'AMC | CA | Movies',
+            'AMC | EU | General Channels',
+            'AMC Thrillers | US | Movies',
+        ]);
+        expect(new Set(choices.map(c => c.value)).size).toBe(4);
+    });
+});
+
+describe('channelKey / findChannel', () => {
+    const us = { xui_id: 1, tvg_name: 'AMC', group_title: 'US | Entertainment', url: 'http://x/live/u/p/1.ts' };
+    const ca = { xui_id: 2, tvg_name: 'AMC', group_title: 'CA | Movies', url: 'http://x/live/u/p/2.ts' };
+
+    it('is stable, short and safe for Discord custom IDs', () => {
+        expect(channelKey(us)).toBe(channelKey({ ...us, tvg_name: 'Renamed' }));
+        expect(channelKey(us)).not.toBe(channelKey(ca));
+        expect(channelKey(us)).toMatch(/^c[0-9a-f]{11}$/);
+    });
+
+    it('resolves keys exactly and names case-insensitively', () => {
+        expect(findChannel([us, ca], channelKey(ca))).toBe(ca);
+        expect(findChannel([us, ca], 'amc')).toBe(us);
+        expect(findChannel([us, ca], 'missing')).toBeUndefined();
+        expect(findChannelBySanitizedId([us, ca], channelKey(ca))).toBe(ca);
+    });
+
+    it('shows the category in display names', () => {
+        expect(channelDisplayName(ca)).toBe('AMC (CA | Movies)');
+        expect(channelDisplayName({ xui_id: 0, tvg_name: 'Plain', url: 'u' })).toBe('Plain');
     });
 });

@@ -1,3 +1,4 @@
+import { channelDisplayName, channelKey } from '../../utils/channels';
 import { BaseEmbedProcessor } from './base';
 import { EmbedBuilder } from 'discord.js';
 import type { EmbedOptions, EmbedResult } from './types';
@@ -277,8 +278,8 @@ export class ProgrammeEmbedProcessor extends BaseEmbedProcessor<ProgrammeEntry> 
         for (let i = 0; i < channelsToDisplay.length; i += 10) {
             const chunk = channelsToDisplay.slice(i, i + 10);
             const fieldValue = chunk.map(channel => {
-                const channelName = channel.tvg_name || 'Unknown';
-                const isLive = liveChannel?.tvg_name === channel.tvg_name;
+                const channelName = channelDisplayName(channel);
+                const isLive = liveChannel !== null && liveChannel !== undefined && channelKey(liveChannel) === channelKey(channel);
                 return `- ${channelName} ${isLive ? '🔴 LIVE' : ''}`;
             }).join('\n');
             embed.addFields({ name: `Channels ${start + i + 1}-${start + i + chunk.length}`, value: fieldValue });

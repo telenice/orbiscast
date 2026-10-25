@@ -2,20 +2,20 @@ import { ActionRowBuilder, ButtonBuilder, ButtonInteraction, ButtonStyle, ChatIn
 import { getLogger } from '../../utils/logger';
 import { getChannelEntries, getProgrammeEntries } from '../../modules/database';
 import type { ChannelEntry, ProgrammeEntry } from '../../interfaces/iptv';
-import { findChannelBySanitizedId, sanitizeChannelId } from '../../utils/channels';
+import { channelDisplayName, channelKey, findChannel, findChannelBySanitizedId } from '../../utils/channels';
 import { getCurrentChannelEntry } from '../streaming';
 import { ProgrammeEmbedProcessor } from '../embeds/programme';
 
 const logger = getLogger();
 /**
  * Generates programme information embeds for a given channel
- * @param channelName - Name of the channel to get programme information for
+ * @param channelName - Channel key (from autocomplete/buttons) or channel name
  * @returns Object containing success status, message and programme embeds
  */
 export async function generateProgrammeInfo(channelName: string) {
     try {
         const channels = await getChannelEntries();
-        const channel = channels.find(ch => ch.tvg_name?.toLowerCase() === channelName.toLowerCase());
+        const channel = findChannel(channels, channelName);
 
         if (!channel || !channel.tvg_id) {
             return { success: false, message: `Channel not found: ${channelName}`, embeds: [] };
@@ -31,14 +31,14 @@ export async function generateProgrammeInfo(channelName: string) {
             .slice(0, 10); // Get the next 10 upcoming shows
 
         if (futureProgrammes.length === 0) {
-            return { success: false, message: `No upcoming programmes found for channel: ${channelName}`, embeds: [] };
+            return { success: false, message: `No upcoming programmes found for channel: ${channel.tvg_name}`, embeds: [] };
         }
 
         // Use the moved embed generation function
-        const embedsToSend = ProgrammeEmbedProcessor.generateProgrammeInfoEmbeds(channelName, channelProgrammes);
+        const embedsToSend = ProgrammeEmbedProcessor.generateProgrammeInfoEmbeds(channel.tvg_name || channelName, channelProgrammes);
 
         if (embedsToSend.length === 0) {
-            return { success: false, message: `No programme information available for channel: ${channelName}`, embeds: [] };
+            return { success: false, message: `No programme information available for channel: ${channel.tvg_name}`, embeds: [] };
         }
 
         return { success: true, message: '', embeds: embedsToSend };
@@ -119,18 +119,18 @@ export async function generateProgrammeList(pageOption: number = 1): Promise<{
 
         for (const channel of chunk) {
             if (channel.tvg_name) {
-                const isLive = liveChannel?.tvg_name === channel.tvg_name;
+                const isLive = liveChannel !== null && channelKey(liveChannel) === channelKey(channel);
 
                 // Sanitize the channel name for use in custom ID
                 // Discord has a 100 character limit on custom IDs
-                const safeChannelName = sanitizeChannelId(channel.tvg_name);
+                const safeChannelName = channelKey(channel);
 
                 //logger.debug(`Creating button with ID: view_programme_${safeChannelName} for channel: ${channel.tvg_name}`);
 
                 buttonRow.addComponents(
                     new ButtonBuilder()
                         .setCustomId(`view_programme_${safeChannelName}`)
-                        .setLabel(`${isLive ? '🔴 ' : '📋 '}${channel.tvg_name}`)
+                        .setLabel(`${isLive ? '🔴 ' : '📋 '}${channelDisplayName(channel)}`.slice(0, 80))
                         .setStyle(isLive ? ButtonStyle.Danger : ButtonStyle.Primary)
                 );
             }
@@ -183,9 +183,7 @@ export async function handleProgrammeListButtonInteraction(interaction: ButtonIn
                 return;
             }
 
-            const channelName = channel.tvg_name;
-
-            const programmeInfo = await generateProgrammeInfo(channelName);
+            const programmeInfo = await generateProgrammeInfo(channelKey(channel));
 
             logger.debug(`Programme info result: ${JSON.stringify({
                 success: programmeInfo.success,

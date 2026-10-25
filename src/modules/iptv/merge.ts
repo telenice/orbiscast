@@ -17,9 +17,10 @@ export function buildGuideFilter(channels: ChannelEntry[]): Set<string> | undefi
 
 /**
  * Pure merge of database channels with source channels (see mergeChannelsIntoDatabase).
- * Source channels are matched to guide channels by name first, then by tvg_id
- * (each guide channel is claimed at most once, so several source variants that
- * share an EPG id, e.g. "BBC One HD" and "BBC One SD", all survive).
+ * Each source channel is matched to at most one guide channel, by name first,
+ * then by tvg_id; each guide channel is claimed at most once. Source channels
+ * that share a name (e.g. "AMC" in US, CA and EU categories) all stay as
+ * separate entries; only exact duplicate stream URLs are dropped.
  *
  * @param existingChannels - Channels currently in the database
  * @param sourceChannels - Channels from a playlist or Xtream source
@@ -28,31 +29,42 @@ export function buildGuideFilter(channels: ChannelEntry[]): Set<string> | undefi
 export function mergeChannelLists(existingChannels: ChannelEntry[], sourceChannels: ChannelEntry[]): ChannelEntry[] {
     // Only guide-only channels carry over; previously synced channels are rebuilt from the sources.
     const guideChannels = existingChannels.filter(ch => !ch.url).map(ch => ({ ...ch }));
-    const byName = new Map<string, ChannelEntry>();
+    const unclaimedByName = new Map<string, ChannelEntry>();
     const unclaimedById = new Map<string, ChannelEntry>();
     for (const ch of guideChannels) {
-        const key = ch.tvg_name || ch.tvg_id;
-        if (key) byName.set(key, ch);
-        if (ch.tvg_id) unclaimedById.set(ch.tvg_id.toLowerCase(), ch);
+        const name = ch.tvg_name?.toLowerCase();
+        if (name && !unclaimedByName.has(name)) unclaimedByName.set(name, ch);
+        const id = ch.tvg_id?.toLowerCase();
+        if (id && !unclaimedById.has(id)) unclaimedById.set(id, ch);
     }
 
-    sourceChannels.forEach((sourceCh, index) => {
-        const channelKey = sourceCh.tvg_name || sourceCh.tvg_id || `playlist_${index}`;
-        let target = byName.get(channelKey);
+    const claim = (ch: ChannelEntry) => {
+        const name = ch.tvg_name?.toLowerCase();
+        if (name && unclaimedByName.get(name) === ch) unclaimedByName.delete(name);
+        const id = ch.tvg_id?.toLowerCase();
+        if (id && unclaimedById.get(id) === ch) unclaimedById.delete(id);
+    };
 
+    const merged: ChannelEntry[] = [...guideChannels];
+    const seenUrls = new Set<string>();
+
+    for (const sourceCh of sourceChannels) {
+        if (sourceCh.url) {
+            if (seenUrls.has(sourceCh.url)) continue;
+            seenUrls.add(sourceCh.url);
+        }
+
+        let target = sourceCh.tvg_name ? unclaimedByName.get(sourceCh.tvg_name.toLowerCase()) : undefined;
         if (!target && sourceCh.tvg_id) {
-            const byId = unclaimedById.get(sourceCh.tvg_id.toLowerCase());
-            if (byId) {
+            target = unclaimedById.get(sourceCh.tvg_id.toLowerCase());
+            if (target) {
                 // Adopt the provider's channel name so it matches what users search for.
-                byName.delete(byId.tvg_name || byId.tvg_id || '');
-                byId.tvg_name = sourceCh.tvg_name || byId.tvg_name;
-                byName.set(channelKey, byId);
-                target = byId;
+                target.tvg_name = sourceCh.tvg_name || target.tvg_name;
             }
         }
 
         if (target) {
-            if (target.tvg_id) unclaimedById.delete(target.tvg_id.toLowerCase());
+            claim(target);
             target.url = sourceCh.url;
             if (sourceCh.group_title) target.group_title = sourceCh.group_title;
             if (sourceCh.tvg_logo) target.tvg_logo = sourceCh.tvg_logo;
@@ -61,9 +73,9 @@ export function mergeChannelLists(existingChannels: ChannelEntry[], sourceChanne
             if (sourceCh.country) target.country = sourceCh.country;
             if (sourceCh.created_at) target.created_at = sourceCh.created_at;
         } else {
-            byName.set(channelKey, { ...sourceCh });
+            merged.push({ ...sourceCh });
         }
-    });
+    }
 
-    return Array.from(byName.values());
+    return merged;
 }

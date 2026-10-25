@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteracti
 import { getLogger } from '../../utils/logger';
 import { config } from '../../utils/config';
 import { getChannelEntries, getProgrammeEntries } from '../../modules/database';
-import { findChannelBySanitizedId } from '../../utils/channels';
+import { channelKey, findChannel, findChannelBySanitizedId } from '../../utils/channels';
 import { initializeStreamer, joinVoiceChannel, startStreaming } from '../../modules/streaming';
 import { generateProgrammeInfo } from './programme';
 import { executeStopStream } from './stop';
@@ -14,7 +14,7 @@ const STOP_BUTTON_ID = 'stop_stream';
 
 /**
  * Starts streaming the requested channel to a voice channel
- * @param channelName - Name of the channel to stream
+ * @param channelName - Channel to stream: its key (from autocomplete/buttons) or its name
  * @param voiceChannelId - Discord voice channel ID to stream to
  * @param interaction - Optional Discord interaction for button collectors
  * @returns Object containing success status, message, and UI components
@@ -34,15 +34,15 @@ export async function executeStreamChannel(
         return { success: false, message: 'Please specify a channel name.' };
     }
 
-    logger.info(`Attempting to stream channel: ${channelName}`);
-
     try {
         const channels = await getChannelEntries();
-        const channel = channels.find(ch => ch.tvg_name?.toLowerCase() === channelName.toLowerCase());
+        const channel = findChannel(channels, channelName);
 
         if (!channel || !channel.url) {
             return { success: false, message: `Channel not found: ${channelName}` };
         }
+        logger.info(`Attempting to stream channel: ${channel.tvg_name} (${channel.group_title || 'no category'})`);
+        const ref = channelKey(channel);
 
         if (!voiceChannelId) {
             return { success: false, message: 'You need to be in a voice channel to use this function.' };
@@ -89,8 +89,8 @@ export async function executeStreamChannel(
                     try {
                         await i.deferUpdate();
                         if (i.customId === PROGRAMME_BUTTON_ID) {
-                            logger.info(`Programme button clicked for channel: ${channelName} by ${i.user.tag}`);
-                            const programmeInfo = await generateProgrammeInfo(channelName);
+                            logger.info(`Programme button clicked for channel: ${channel.tvg_name} by ${i.user.tag}`);
+                            const programmeInfo = await generateProgrammeInfo(ref);
 
                             if (!programmeInfo.success) {
                                 await i.followUp({
@@ -101,12 +101,12 @@ export async function executeStreamChannel(
                             }
 
                             await i.followUp({
-                                content: `📺 Programme Guide for ${channelName}`,
+                                content: `📺 Programme Guide for ${channel.tvg_name}`,
                                 embeds: programmeInfo.embeds,
                                 flags: MessageFlags.Ephemeral // Only visible to the user who clicked
                             });
                         } else if (i.customId === STOP_BUTTON_ID) {
-                            logger.info(`Stop button clicked for stream: ${channelName} by ${i.user.tag}`);
+                            logger.info(`Stop button clicked for stream: ${channel.tvg_name} by ${i.user.tag}`);
                             const stopResult = await executeStopStream();
 
                             if (!stopResult.success) {
@@ -135,7 +135,7 @@ export async function executeStreamChannel(
                             }
 
                             // Pass the current button interaction to maintain the interaction chain
-                            const playResult = await executeStreamChannel(channel.tvg_name, voiceChannelId);
+                            const playResult = await executeStreamChannel(channelKey(channel), voiceChannelId);
 
                             if (playResult.success) {
                                 await i.followUp({

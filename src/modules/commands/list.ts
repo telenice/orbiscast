@@ -1,7 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonInteraction, ButtonStyle, ChatInputCommandInteraction, EmbedBuilder, GuildMember, MessageFlags, ComponentType } from 'discord.js';
 import { getLogger } from '../../utils/logger';
 import { getChannelEntries } from '../../modules/database';
-import { findChannelBySanitizedId, sanitizeChannelId } from '../../utils/channels';
+import { channelDisplayName, channelKey, findChannelBySanitizedId } from '../../utils/channels';
 import { executeStreamChannel } from './stream';
 import { executeStopStream } from './stop';
 
@@ -33,7 +33,7 @@ export async function generateChannelList(pageOption: string | number | undefine
 
         for (let i = 0; i < channelEntries.length; i += 10) {
             const chunk = channelEntries.slice(i, i + 10);
-            const fieldValue = chunk.map(channel => `- ${channel.tvg_name || 'Unknown'}`).join('\n');
+            const fieldValue = chunk.map(channel => `- ${channelDisplayName(channel)}`).join('\n');
             embed.addFields({ name: `Channels ${i + 1}-${i + chunk.length}`, value: fieldValue });
         }
 
@@ -73,7 +73,7 @@ export async function generateChannelList(pageOption: string | number | undefine
 
     for (let i = 0; i < channelsToDisplay.length; i += 10) {
         const chunk = channelsToDisplay.slice(i, i + 10);
-        const fieldValue = chunk.map(channel => `- ${channel.tvg_name || 'Unknown'}`).join('\n');
+        const fieldValue = chunk.map(channel => `- ${channelDisplayName(channel)}`).join('\n');
         embed.addFields({ name: `Channels ${start + i + 1}-${start + i + chunk.length}`, value: fieldValue });
     }
 
@@ -107,8 +107,8 @@ export async function generateChannelList(pageOption: string | number | undefine
             if (channel.tvg_name) {
                 buttonRow.addComponents(
                     new ButtonBuilder()
-                        .setCustomId(`play_channel_${sanitizeChannelId(channel.tvg_name)}`)
-                        .setLabel(`▶️ ${channel.tvg_name}`.slice(0, 80))
+                        .setCustomId(`play_channel_${channelKey(channel)}`)
+                        .setLabel(`▶️ ${channelDisplayName(channel)}`.slice(0, 80))
                         .setStyle(ButtonStyle.Success)
                 );
             }
@@ -304,7 +304,7 @@ export async function handleButtonInteraction(interaction: ButtonInteraction) {
                 return;
             }
 
-            await handlePlayChannelButton(interaction, channel.tvg_name);
+            await handlePlayChannelButton(interaction, channelKey(channel));
         } else if (interaction.customId === 'stop_stream') {
             await handleStopStreamButton(interaction);
         } else if (interaction.customId.startsWith('channel_list_prev_') || interaction.customId.startsWith('channel_list_next_')) {

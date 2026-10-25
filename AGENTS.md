@@ -125,8 +125,9 @@ ordering: if you add a module that reads `process.env` at import time, import
   `streamWithRetry` streams large files (the XMLTV guide) with no size cap and
   gunzips `.gz`/gzip content on the fly.
 - Channel merging lives in `merge.ts` (pure, unit-tested): guide-only channels
-  are kept, previously synced channels are rebuilt from the sources, and source
-  channels match guide channels by name, then by tvg-id.
+  are kept, previously synced channels are rebuilt from the sources, and each
+  source channel claims at most one guide channel (by name, then tvg-id).
+  Same-named source channels stay separate; only duplicate stream URLs are dropped.
 - `parsers/playlist-parser.ts` tries several `#EXTINF` attribute layouts.
 - `parsers/xmltv-parser.ts` is a streaming `sax` parser: it materialises one
   `<channel>`/`<programme>` at a time (in xml2js shape), filters by wanted
@@ -175,9 +176,13 @@ ordering: if you add a module that reads `process.env` at import time, import
 
 - Registers guild slash commands on `ready` and dispatches interactions.
 - Autocomplete always responds (even with an empty list) and caps choices at 25.
-- Component custom IDs are limited to 100 characters, so channel names are
-  sanitized with `utils/channels.ts#sanitizeChannelId` and resolved back with
-  `findChannelBySanitizedId`. Use these helpers for any new channel buttons.
+- Channel names are **not** unique (e.g. "AMC" in US, CA and EU categories).
+  Identify channels with `utils/channels.ts#channelKey` (short hash of the
+  stream URL, stable across refreshes) in autocomplete values and button custom
+  IDs, and resolve user input with `findChannel` (key first, then name). Show
+  `channelDisplayName` (name + category) where same-named channels may appear
+  together. `findChannelBySanitizedId` also accepts keys, so old buttons with
+  sanitized names keep working.
 
 ## Environment variables
 

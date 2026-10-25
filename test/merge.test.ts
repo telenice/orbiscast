@@ -33,6 +33,20 @@ describe('mergeChannelLists', () => {
         expect(merged.map(c => c.tvg_name).sort()).toEqual(['BBC One', 'ITV1']);
     });
 
+    it('keeps same-named channels from different categories as separate entries', () => {
+        const merged = mergeChannelLists([], [
+            source('amc.us', 'AMC', 'us', 'US | Entertainment'),
+            source('amc.ca', 'AMC', 'ca', 'CA | Movies'),
+            source('amc.eu', 'AMC', 'eu1', 'EU | General Channels'),
+            source('amc.eu', 'AMC', 'eu2', 'EU | General Channels'),
+        ]);
+        expect(merged.map(c => c.url)).toEqual(['us', 'ca', 'eu1', 'eu2']);
+    });
+
+    it('drops exact duplicate stream URLs', () => {
+        expect(mergeChannelLists([], [source('a', 'A', 'same'), source('a', 'A again', 'same')])).toHaveLength(1);
+    });
+
     it('does not mutate its inputs', () => {
         const existing = [guide('bbc1.uk', 'BBC One')];
         mergeChannelLists(existing, [source('bbc1.uk', 'BBC One HD', 'u1')]);

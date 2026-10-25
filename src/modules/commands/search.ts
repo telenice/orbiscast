@@ -1,7 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonInteraction, ButtonStyle, ChatInputCommandInteraction, ComponentType, GuildMember, MessageFlags } from 'discord.js';
 import { getLogger } from '../../utils/logger';
 import { getChannelEntries, getProgrammeEntries } from '../database';
-import { findChannelBySanitizedId, sanitizeChannelId } from '../../utils/channels';
+import { channelKey, findChannelBySanitizedId } from '../../utils/channels';
 import { searchProgrammes } from '../iptv/search';
 import type { ProgrammeSearchResult } from '../iptv/search';
 import { buildSearchEmbed } from '../embeds/search';
@@ -26,7 +26,7 @@ export function buildSearchButtons(results: ProgrammeSearchResult[]): ActionRowB
         const label = `${index + 1}. ${result.live ? '🔴' : '▶'} ${channel.tvg_name}`.slice(0, 80);
         row.addComponents(
             new ButtonBuilder()
-                .setCustomId(`${PLAY_PREFIX}${index}_${sanitizeChannelId(channel.tvg_name)}`)
+                .setCustomId(`${PLAY_PREFIX}${index}_${channelKey(channel)}`)
                 .setLabel(label)
                 .setStyle(result.live ? ButtonStyle.Danger : ButtonStyle.Secondary)
         );
@@ -59,7 +59,7 @@ async function handlePlayButton(interaction: ButtonInteraction): Promise<void> {
     }
 
     logger.info(`Search result button: streaming ${channel.tvg_name} for ${interaction.user.tag}`);
-    const result = await executeStreamChannel(channel.tvg_name, voiceChannel.id);
+    const result = await executeStreamChannel(channelKey(channel), voiceChannel.id);
 
     const reply = await interaction.followUp({
         content: result.message || undefined,
