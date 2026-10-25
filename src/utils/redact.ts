@@ -11,7 +11,7 @@ export function redactUrl(url: string): string {
         return url;
     }
     return url
-        .replace(/(\/\/)[^/@\s]+@/, '$1***@')
+        .replace(/(\/\/)[^/@\s'"]+@/g, '$1***@')
         .replace(/([?&](?:username|password|user|pass|token)=)[^&#\s]*/gi, '$1***')
-        .replace(/(\/(?:live|movie|series|timeshift)\/)[^/\s]+\/[^/\s]+\//i, '$1***/***/');
+        .replace(/(\/(?:live|movie|series|timeshift)\/)[^/\s]+\/[^/\s]+\//gi, '$1***/***/');
 }

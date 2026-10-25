@@ -126,3 +126,12 @@ describe('redactUrl', () => {
         expect(redactUrl('http://example.com/playlist.m3u')).toBe('http://example.com/playlist.m3u');
     });
 });
+
+describe('redactUrl in error output', () => {
+    it('masks every occurrence of a stream URL', () => {
+        const err = "ffmpeg -i 'https://h/live/u1/p1/1.ts' failed\nInput #0, mpegts, from 'https://h/live/u1/p1/1.ts':";
+        const redacted = redactUrl(err);
+        expect(redacted).not.toContain('u1');
+        expect(redacted).not.toContain('p1');
+    });
+});

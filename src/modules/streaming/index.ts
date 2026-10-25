@@ -5,6 +5,11 @@ import { getLogger } from '../../utils/logger';
 import { config } from '../../utils/config';
 import type { ChannelEntry } from '../../interfaces/iptv';
 
+/**
+ * Low-latency FFmpeg input options (replacement for the library's minimizeLatency).
+ */
+export const LOW_LATENCY_INPUT_OPTIONS = ['-fflags', 'nobuffer', '-flags', 'low_delay', '-flush_packets', '1', '-max_delay', '100000'];
+
 const logger = getLogger();
 const streamer = new Streamer(new Client());
 let abortController = new AbortController();
@@ -279,7 +284,11 @@ export async function startStreaming(channelEntry: ChannelEntry) {
 
         const { command, output, promise } = prepareStream(channelEntry.url, {
             noTranscoding: config.DISABLE_TRANSCODE,
-            minimizeLatency: config.MINIMIZE_LATENCY,
+            // discord-video-stream's minimizeLatency passes `-flags lowdelay`, which
+            // FFmpeg rejects (the constant is `low_delay`) and the stream fails to
+            // start. Apply the same low-latency input options ourselves instead.
+            minimizeLatency: false,
+            customInputOptions: config.MINIMIZE_LATENCY ? LOW_LATENCY_INPUT_OPTIONS : [],
             bitrateVideo: config.BITRATE_VIDEO,
             bitrateVideoMax: config.BITRATE_VIDEO_MAX,
             videoCodec: Utils.normalizeVideoCodec('H264'),
@@ -293,13 +302,13 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         // rejection; actual playback is driven by `playStream` below.
         promise.catch((err: unknown) => {
             if (!signal.aborted) {
-                logger.error(`FFmpeg process error: ${err}`);
+                logger.error(`FFmpeg process error: ${redactUrl(String(err))}`);
             }
         });
 
         command.on('error', (err: unknown) => {
             if (!signal.aborted) {
-                logger.error(`FFmpeg ${err}`);
+                logger.error(`FFmpeg ${redactUrl(String(err))}`);
             }
         });
 
