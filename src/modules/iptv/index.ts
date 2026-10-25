@@ -8,6 +8,7 @@ import { fromPlaylistLine } from './parsers/playlist-parser';
 import { extractXMLTVData } from './parsers/xmltv-parser';
 import { isProgrammeDataStale } from './utils';
 import { scheduleIPTVRefresh } from './schedulers';
+import { fetchXtreamChannels } from './xtream';
 import type { ChannelEntry } from '../../interfaces/iptv';
 
 const logger = getLogger();
@@ -24,13 +25,10 @@ export async function downloadCacheAndFillDb(force = false): Promise<void> {
     // Try XMLTV first for comprehensive data
     if (config.XMLTV) {
         await populateDatabaseFromXMLTV(force);
+    }
 
-        // Sync with playlist if available to get stream URLs
-        if (config.PLAYLIST) {
-            await syncPlaylistChannels(force);
-        }
-    } else if (config.PLAYLIST) {
-        // Fallback to playlist-only mode
+    // Sync stream URLs from the M3U playlist and/or Xtream API
+    if (config.PLAYLIST || config.XTREAM_ENABLED) {
         await syncPlaylistChannels(force);
     }
 
@@ -82,9 +80,17 @@ export async function populateDatabaseFromXMLTV(force = false): Promise<void> {
 
     // Add channels from XMLTV if available
     if (parsedData.channels.length > 0) {
+        // Keep stream URLs from a previous playlist/Xtream sync so a programme-only
+        // refresh does not leave channels without anything to play.
+        const previousChannels = (await getChannelEntries()).filter(ch => ch.url);
+
         await clearChannels();
         await addChannels(parsedData.channels);
         logger.info(`Added ${parsedData.channels.length} channels from XMLTV`);
+
+        if (previousChannels.length > 0) {
+            await mergeChannelsIntoDatabase(previousChannels);
+        }
 
         // Log channel IDs for debugging
         const channelIds = parsedData.channels.map(ch => ch.tvg_id).join(', ');
@@ -119,12 +125,43 @@ export async function populateDatabaseFromXMLTV(force = false): Promise<void> {
 }
 
 /**
- * Synchronizes playlist channels with database, merging with existing XMLTV data.
- * 
+ * Synchronizes channels from every configured stream source (M3U playlist and/or
+ * Xtream API) with the database, merging with existing XMLTV data.
+ *
  * @param force - Force download even if cache exists
  */
 export async function syncPlaylistChannels(force = false): Promise<void> {
-    logger.debug('Initiating playlist channel synchronization');
+    logger.debug('Initiating channel synchronization');
+
+    const sourceChannels: ChannelEntry[] = [];
+
+    if (config.XTREAM_ENABLED) {
+        try {
+            sourceChannels.push(...await fetchXtreamChannels(force));
+        } catch (error) {
+            logger.error(`Error retrieving Xtream channels: ${error}`);
+        }
+    }
+
+    if (config.PLAYLIST) {
+        sourceChannels.push(...await fetchPlaylistChannels(force));
+    }
+
+    if (sourceChannels.length === 0) {
+        logger.warn('No channels retrieved from any source; keeping existing database');
+        return;
+    }
+
+    await mergeChannelsIntoDatabase(sourceChannels);
+}
+
+/**
+ * Downloads (or reads from cache) and parses the M3U playlist.
+ *
+ * @param force - Force download even if cache exists
+ * @returns Parsed channel entries (empty on failure)
+ */
+export async function fetchPlaylistChannels(force = false): Promise<ChannelEntry[]> {
     logger.info('Retrieving playlist data...');
 
     let playlistContent: Buffer | null = null;
@@ -148,16 +185,16 @@ export async function syncPlaylistChannels(force = false): Promise<void> {
                 logger.debug(`Successfully downloaded playlist, size: ${playlistContent.length} bytes`);
             } else {
                 logger.warn('No playlist content received');
-                return;
+                return [];
             }
         } catch (error) {
             logger.error(`Error downloading playlist: ${error}`);
-            return;
+            return [];
         }
     }
 
     if (!playlistContent) {
-        return;
+        return [];
     }
 
     // Extract channels from playlist
@@ -185,6 +222,16 @@ export async function syncPlaylistChannels(force = false): Promise<void> {
     const playlistIds = playlistChannels.map(ch => `${ch.tvg_name}(${ch.tvg_id})`).join(', ');
     logger.debug(`Playlist channel IDs: [${playlistIds}]`);
 
+    return playlistChannels;
+}
+
+/**
+ * Merges source channels (with stream URLs) into the channels already in the database.
+ * Channels are matched by tvg_name (falling back to tvg_id).
+ *
+ * @param sourceChannels - Channels from a playlist or Xtream source
+ */
+export async function mergeChannelsIntoDatabase(sourceChannels: ChannelEntry[]): Promise<void> {
     // Retrieve and merge with existing database channels
     const existingChannels = await getChannelEntries();
 
@@ -193,23 +240,24 @@ export async function syncPlaylistChannels(force = false): Promise<void> {
 
     logger.debug(`Located ${existingChannels.length} existing channels in database`);
 
-    // Integrate playlist channels with existing data
-    for (const playlistCh of playlistChannels) {
+    // Integrate source channels with existing data
+    sourceChannels.forEach((sourceCh, index) => {
         // Use tvg_name as the primary key for uniqueness
-        const channelKey = playlistCh.tvg_name || playlistCh.tvg_id || `playlist_${playlistChannels.indexOf(playlistCh)}`;
+        const channelKey = sourceCh.tvg_name || sourceCh.tvg_id || `playlist_${index}`;
         const existingCh = channelMap.get(channelKey);
 
         if (existingCh) {
-            // Update existing channel with playlist URL
-            existingCh.url = playlistCh.url;
-            if (playlistCh.group_title) existingCh.group_title = playlistCh.group_title;
-            if (playlistCh.tvg_logo) existingCh.tvg_logo = playlistCh.tvg_logo;
-            if (playlistCh.tvg_id) existingCh.tvg_id = playlistCh.tvg_id;
+            // Update existing channel with source URL
+            existingCh.url = sourceCh.url;
+            if (sourceCh.group_title) existingCh.group_title = sourceCh.group_title;
+            if (sourceCh.tvg_logo) existingCh.tvg_logo = sourceCh.tvg_logo;
+            if (sourceCh.tvg_id) existingCh.tvg_id = sourceCh.tvg_id;
+            if (sourceCh.xui_id) existingCh.xui_id = sourceCh.xui_id;
         } else {
-            // Add new channel from playlist
-            channelMap.set(channelKey, playlistCh);
+            // Add new channel from source
+            channelMap.set(channelKey, sourceCh);
         }
-    }
+    });
 
     // Persist merged channels to database
     const mergedChannels = Array.from(channelMap.values());

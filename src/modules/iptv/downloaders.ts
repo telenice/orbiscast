@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { getLogger } from '../../utils/logger';
 import { cacheFile, getCachedFile } from '../../utils/cache';
+import { redactUrl } from '../../utils/redact';
 
 const logger = getLogger();
 
@@ -16,7 +17,7 @@ export async function fetchWithRetry(url: string, cacheFileName: string): Promis
     const maxRetries = 3;
     let retryDelay = 5;
 
-    logger.info(`Downloading from ${url} to cache as ${cacheFileName}`);
+    logger.info(`Downloading from ${redactUrl(url)} to cache as ${cacheFileName}`);
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         let abortController: AbortController | null = null;
@@ -59,9 +60,9 @@ export async function fetchWithRetry(url: string, cacheFileName: string): Promis
             if (axios.isCancel(error) || (error as any).name === 'AbortError') {
                 logger.warn(`Request timeout on attempt ${attempt}`);
             } else if (axios.isAxiosError(error) && (error.code === 'ECONNABORTED' || (error.response?.status ?? 0) >= 500)) {
-                logger.warn(`Connection error on attempt ${attempt}: ${error.message}`);
+                logger.warn(`Connection error on attempt ${attempt}: ${redactUrl(error.message)}`);
             } else {
-                logger.error(`Request error on attempt ${attempt}: ${(error as any).message}`);
+                logger.error(`Request error on attempt ${attempt}: ${redactUrl(String((error as any).message))}`);
             }
 
             if (attempt < maxRetries) {

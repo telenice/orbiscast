@@ -1,5 +1,6 @@
 import { Client } from '@lng2004/discord.js-selfbot-v13';
 import { Streamer, prepareStream, playStream, Utils, Encoders } from '@dank074/discord-video-stream';
+import { redactUrl } from '../../utils/redact';
 import { getLogger } from '../../utils/logger';
 import { config } from '../../utils/config';
 import type { ChannelEntry } from '../../interfaces/iptv';
@@ -269,7 +270,7 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         // fresh controller, so checking the module-level one later could race.
         signal = abortController.signal;
 
-        logger.info(`Attempting to stream: ${channelEntry.url}`);
+        logger.info(`Attempting to stream: ${channelEntry.tvg_name} (${redactUrl(channelEntry.url)})`);
 
         const encoder = Encoders.software({
             x264: { preset: 'veryfast' },

@@ -37,7 +37,7 @@ regular bots to send video.
   discord-video-stream v7 uses `azmq` for volume control; a plain FFmpeg build
   without it will fail. Debian's `ffmpeg` package has it; the static builds
   bundled inside `node-av` do **not**.
-- An M3U playlist URL, and optionally an XMLTV guide URL
+- An M3U playlist URL or Xtream Codes credentials, and optionally an XMLTV guide URL
 
 ### Docker base image
 
@@ -66,7 +66,8 @@ src/
     commands/                    Slash command handlers (stream, stop, list, ...)
     embeds/                      Embed builders (base, channel, programme)
     iptv/                        Playlist/XMLTV download + parsing + scheduling
-      parsers/                   M3U and XMLTV parsers
+      xtream.ts                  Xtream Codes API client (player_api.php)
+      parsers/                   M3U, XMLTV and Xtream parsers
     database/index.ts            lowdb persistence
 test/                            Vitest tests
 .github/workflows/               CI + Docker release workflows
@@ -109,8 +110,14 @@ ordering: if you add a module that reads `process.env` at import time, import
 ### IPTV pipeline (`src/modules/iptv/`)
 
 - `downloadCacheAndFillDb()` is the entry point. If `XMLTV` is set it parses the
-  guide (channels + programmes), then if `PLAYLIST` is set it merges stream URLs
-  from the M3U. Playlist-only mode is supported.
+  guide (channels + programmes), then `syncPlaylistChannels()` merges stream URLs
+  from the M3U (`PLAYLIST`) and/or the Xtream API (`XTREAM_*`). Playlist-only
+  mode is supported. When Xtream is configured and `XMLTV` is unset, `config`
+  points `XMLTV` at the provider's `xmltv.php`.
+- XMLTV refreshes keep stream URLs from the previous channel sync, so a
+  programme-only refresh does not leave channels unplayable.
+- Never log raw stream or source URLs; pass them through
+  `utils/redact.ts#redactUrl` (Xtream URLs embed the username and password).
 - `downloaders.ts` fetches with retries, exponential backoff, a 30s timeout and
   a 50 MB size cap, caching results via `utils/cache`.
 - `parsers/playlist-parser.ts` tries several `#EXTINF` attribute layouts.
@@ -143,8 +150,10 @@ ordering: if you add a module that reads `process.env` at import time, import
 
 ## Environment variables
 
-See `.env.example` and the README table. Required: `PLAYLIST`,
-`DISCORD_BOT_TOKEN`, `DISCORD_USER_TOKEN`, `GUILD`. Optional: `XMLTV`,
+See `.env.example` and the README table. Required: `DISCORD_BOT_TOKEN`,
+`DISCORD_USER_TOKEN`, `GUILD`, plus either `PLAYLIST` or all of `XTREAM_HOST`,
+`XTREAM_USERNAME`, `XTREAM_PASSWORD`. Optional: `XMLTV`, `XTREAM_OUTPUT`,
+`XTREAM_CATEGORIES`, `XTREAM_EPG`,
 `REFRESH_IPTV`, `RAM_CACHE`, `CACHE_DIR`, `DEBUG`, `DEFAULT_STREAM_TIMEOUT`,
 `TZ`, `MINIMIZE_LATENCY`, `BITRATE_VIDEO`, `BITRATE_VIDEO_MAX`,
 `DISABLE_TRANSCODE`.

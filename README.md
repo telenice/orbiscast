@@ -135,8 +135,14 @@ The application uses the following environment variables, which should be define
 
 | Variable                 | Description                                                           | Example/Default                       | Required |
 |--------------------------|-----------------------------------------------------------------------|---------------------------------------|----------|
-| `PLAYLIST`               | URL to the M3U playlist.                                              | `http://example.com/m3u/playlist.m3u` | ✔        |
-| `XMLTV`                  | URL to the XMLTV guide.                                               | `http://example.com/xmltv/guide.xml`  | ✘        |
+| `PLAYLIST`               | URL to the M3U playlist. Required unless Xtream is configured.        | `http://example.com/m3u/playlist.m3u` | ✔*       |
+| `XMLTV`                  | URL to the XMLTV guide. Defaults to the Xtream EPG when Xtream is set. | `http://example.com/xmltv/guide.xml`  | ✘        |
+| `XTREAM_HOST`            | Xtream Codes server URL (with port). Required with Xtream.            | `http://example.com:8080`             | ✔*       |
+| `XTREAM_USERNAME`        | Xtream account username.                                              | `username`                            | ✔*       |
+| `XTREAM_PASSWORD`        | Xtream account password.                                              | `password`                            | ✔*       |
+| `XTREAM_OUTPUT`          | Stream container: `ts` (MPEG-TS) or `m3u8` (HLS).                     | `ts`                                  | ✘        |
+| `XTREAM_CATEGORIES`      | Comma-separated live category IDs or names to keep (empty = all).     | `UK \| News,12`                       | ✘        |
+| `XTREAM_EPG`             | Use the provider's `xmltv.php` guide when `XMLTV` is not set.         | `true`                                | ✘        |
 | `REFRESH_IPTV`           | Interval in minutes to refresh the IPTV data.                         | `1440`                                | ✘        |
 | `RAM_CACHE`              | Whether to use RAM for caching.                                       | `true`                                | ✘        |
 | `CACHE_DIR`              | Directory for cache storage.                                          | `../cache`                            | ✘        |
@@ -147,6 +153,14 @@ The application uses the following environment variables, which should be define
 | `BITRATE_VIDEO`          | Video bitrate in Kbps.                                                | `5000`                                | ✘        |
 | `BITRATE_VIDEO_MAX`      | Maximum video bitrate in Kbps.                                        | `7500`                                | ✘        |
 | `DISABLE_TRANSCODE`      | Disable transcoding and pass stream through directly.                 | `false`                               | ✘        |
+
+\* Configure **either** `PLAYLIST` **or** all three of `XTREAM_HOST`, `XTREAM_USERNAME` and `XTREAM_PASSWORD`. If both are set, channels from both sources are merged.
+
+#### Xtream Codes API
+
+If your provider gives you a server URL, username and password instead of an M3U link, set the `XTREAM_*` variables. OrbisCast reads live channels and categories from `player_api.php`, builds stream URLs as `<host>/live/<user>/<pass>/<id>.<ts|m3u8>`, and (unless you set `XMLTV` or `XTREAM_EPG=false`) loads the programme guide from the provider's `xmltv.php`. Credentials are masked in the logs.
+
+Xtream accounts often contain thousands of channels; use `XTREAM_CATEGORIES` to keep only the categories you want. Category names are matched case-insensitively against the provider's live category names.
 
 > [!TIP]
 > There is a bunch of IPTV providers online. I recommend using a tool like [Threadfin](https://github.com/Threadfin/Threadfin) or [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) to sort out your IPTV channels. You can find public M3U playlists [here](https://github.com/iptv-org/iptv). More info on IPTV can be found [here](https://github.com/iptv-org/awesome-iptv).
@@ -186,7 +200,7 @@ If you encounter any issues, here are some common problems and their solutions:
 
 - **High latency**: Enable the `MINIMIZE_LATENCY` option in your environment variables to reduce streaming delay.
 
-- **Missing channels**: Make sure your M3U playlist URL is correct and accessible. You can use the `/refresh channels` command to reload the channel list.
+- **Missing channels**: Make sure your M3U playlist URL (or Xtream host and credentials) is correct and accessible. With Xtream, check the log line reporting your account status and expiry date. You can use the `/refresh channels` command to reload the channel list.
 
 - **Authorization errors**: If the bot can't join voice channels or execute commands, verify that both the bot and user tokens are correct and have the necessary permissions.
 

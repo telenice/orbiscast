@@ -1,11 +1,19 @@
 import { existsSync } from 'fs';
 import { getLogger } from './logger';
+import { buildXtreamXmltvUrl, parseCategoryFilter } from '../modules/iptv/parsers/xtream-parser';
+import type { XtreamOutput } from '../modules/iptv/parsers/xtream-parser';
 
 const logger = getLogger();
 
 class Config {
     PLAYLIST: string;
     XMLTV: string;
+    XTREAM_HOST: string;
+    XTREAM_USERNAME: string;
+    XTREAM_PASSWORD: string;
+    XTREAM_OUTPUT: XtreamOutput;
+    XTREAM_CATEGORIES: string[];
+    XTREAM_EPG: boolean;
     REFRESH_IPTV: number;
     DEFAULT_STREAM_TIMEOUT: number;
     RAM_CACHE: boolean;
@@ -27,6 +35,24 @@ class Config {
         // IPTV configuration
         this.PLAYLIST = env.PLAYLIST?.trim() || '';
         this.XMLTV = env.XMLTV?.trim() || '';
+
+        // Xtream Codes API configuration (alternative or addition to PLAYLIST)
+        this.XTREAM_HOST = env.XTREAM_HOST?.trim() || '';
+        this.XTREAM_USERNAME = env.XTREAM_USERNAME?.trim() || '';
+        this.XTREAM_PASSWORD = env.XTREAM_PASSWORD?.trim() || '';
+        this.XTREAM_OUTPUT = env.XTREAM_OUTPUT?.trim().toLowerCase() === 'm3u8' ? 'm3u8' : 'ts';
+        this.XTREAM_CATEGORIES = parseCategoryFilter(env.XTREAM_CATEGORIES);
+        this.XTREAM_EPG = env.XTREAM_EPG?.trim().toLowerCase() !== 'false';
+
+        // Use the provider's built-in EPG when no XMLTV URL is given
+        if (this.XTREAM_ENABLED && !this.XMLTV && this.XTREAM_EPG) {
+            this.XMLTV = buildXtreamXmltvUrl({
+                host: this.XTREAM_HOST,
+                username: this.XTREAM_USERNAME,
+                password: this.XTREAM_PASSWORD,
+            });
+        }
+
         this.REFRESH_IPTV = parseInt(env.REFRESH_IPTV?.trim() || '1440');
         this.DEFAULT_STREAM_TIMEOUT = parseInt(env.DEFAULT_STREAM_TIMEOUT?.trim() || '10');
 
@@ -73,11 +99,18 @@ class Config {
     }
 
     /**
+     * Whether a complete set of Xtream credentials is configured
+     */
+    get XTREAM_ENABLED(): boolean {
+        return Boolean(this.XTREAM_HOST && this.XTREAM_USERNAME && this.XTREAM_PASSWORD);
+    }
+
+    /**
      * Validates that all required environment variables are set
      * @returns True if all required variables are set, false otherwise
      */
     private validateEnvVars(): boolean {
-        const requiredVars = ['DISCORD_BOT_TOKEN', 'DISCORD_USER_TOKEN', 'GUILD', 'PLAYLIST'];
+        const requiredVars = ['DISCORD_BOT_TOKEN', 'DISCORD_USER_TOKEN', 'GUILD'];
         let allVarsSet = true;
 
         requiredVars.forEach(varName => {
@@ -89,6 +122,19 @@ class Config {
                 allVarsSet = false;
             }
         });
+
+        const xtreamVars = ['XTREAM_HOST', 'XTREAM_USERNAME', 'XTREAM_PASSWORD'] as const;
+        const xtreamSet = xtreamVars.filter(varName => Boolean(this[varName]));
+        if (xtreamSet.length > 0 && xtreamSet.length < xtreamVars.length) {
+            const missing = xtreamVars.filter(varName => !this[varName]);
+            logger.error(`Incomplete Xtream configuration, missing: ${missing.join(', ')}`);
+            allVarsSet = false;
+        }
+
+        if (!this.PLAYLIST && !this.XTREAM_ENABLED) {
+            logger.error('No IPTV source configured: set PLAYLIST or XTREAM_HOST, XTREAM_USERNAME and XTREAM_PASSWORD');
+            allVarsSet = false;
+        }
 
         return allVarsSet;
     }
@@ -105,6 +151,13 @@ class Config {
         }
         if (sanitized.XMLTV) {
             sanitized.XMLTV = this.obfuscateString(sanitized.XMLTV, true);
+        }
+
+        if (sanitized.XTREAM_USERNAME) {
+            sanitized.XTREAM_USERNAME = this.obfuscateString(sanitized.XTREAM_USERNAME, true);
+        }
+        if (sanitized.XTREAM_PASSWORD) {
+            sanitized.XTREAM_PASSWORD = this.obfuscateString(sanitized.XTREAM_PASSWORD, true);
         }
 
         if (sanitized.DISCORD_BOT_TOKEN) {

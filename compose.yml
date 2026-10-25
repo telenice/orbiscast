@@ -13,6 +13,10 @@ services:
     # environment:
     #   - PLAYLIST="http://example.com/m3u/playlist.m3u"
     #   - XMLTV="http://example.com/xmltv/guide.xml"
+    # Or, for an Xtream Codes account instead of PLAYLIST:
+    #   - XTREAM_HOST="http://example.com:8080"
+    #   - XTREAM_USERNAME="username"
+    #   - XTREAM_PASSWORD="password"
     # Timezone is optional, but recommended. If you don't set it, the container will use UTC
     # Get the list of available timezones here: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
     #   - TZ="Europe/Ljubljana"
