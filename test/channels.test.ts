@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizeChannelId, findChannelBySanitizedId } from '../src/utils/channels';
+import { buildChannelChoices, sanitizeChannelId, findChannelBySanitizedId } from '../src/utils/channels';
 import type { ChannelEntry } from '../src/interfaces/iptv';
 
 function channel(tvg_name: string): ChannelEntry {
@@ -37,5 +37,47 @@ describe('findChannelBySanitizedId', () => {
     it('ignores channels without a name', () => {
         const unnamed: ChannelEntry = { xui_id: 0, url: 'http://example.com/x' };
         expect(findChannelBySanitizedId([unnamed], 'anything')).toBeUndefined();
+    });
+});
+
+describe('buildChannelChoices', () => {
+    const ch = (tvg_name: string, group_title = ''): ChannelEntry => ({ xui_id: 0, tvg_name, group_title, url: 'u' });
+    const channels = [
+        ch('BBC One HD', 'UK | Entertainment'),
+        ch('Sky Sports Main Event', 'UK | Sports'),
+        ch('TNT Sports 1', 'UK | Sports'),
+        ch('No Category Channel'),
+    ];
+
+    it('labels choices "Channel | Category" and keeps the name as the value', () => {
+        expect(buildChannelChoices(channels, 'bbc')).toEqual([
+            { name: 'BBC One HD | UK | Entertainment', value: 'BBC One HD' },
+        ]);
+    });
+
+    it('omits the separator when there is no category', () => {
+        expect(buildChannelChoices(channels, 'no cat')).toEqual([
+            { name: 'No Category Channel', value: 'No Category Channel' },
+        ]);
+    });
+
+    it('lists name matches before category matches', () => {
+        const values = buildChannelChoices([ch('Sports News', 'UK | News'), ...channels], 'sports').map(c => c.value);
+        expect(values.slice(0, 3)).toEqual(['Sports News', 'Sky Sports Main Event', 'TNT Sports 1']);
+        expect(buildChannelChoices(channels, 'entertainment').map(c => c.value)).toEqual(['BBC One HD']);
+    });
+
+    it('stays within Discord limits', () => {
+        const long = ch('X'.repeat(150), 'Y'.repeat(80));
+        const [choice] = buildChannelChoices([long], '');
+        expect(choice!.name.length).toBeLessThanOrEqual(100);
+        expect(choice!.name).toContain(' | YYY');
+        expect(choice!.value.length).toBe(100);
+        const many = Array.from({ length: 40 }, (_, i) => ch(`Channel ${i}`));
+        expect(buildChannelChoices(many, '')).toHaveLength(25);
+    });
+
+    it('does not repeat a channel name', () => {
+        expect(buildChannelChoices([ch('Dup', 'A'), ch('Dup', 'B')], 'dup')).toHaveLength(1);
     });
 });

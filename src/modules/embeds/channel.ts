@@ -42,7 +42,8 @@ export class ChannelEmbedProcessor extends BaseEmbedProcessor<ChannelEntry> {
             { name: 'Category', value: channel.group_title || 'No Category', inline: true }
         );
 
-        if (channel.country) {
+        // Skip Country when it just repeats the category (common with Xtream).
+        if (channel.country && channel.country !== channel.group_title) {
             embed.addFields({ name: 'Country', value: channel.country, inline: true });
         }
 

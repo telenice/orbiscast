@@ -2,6 +2,7 @@ import { Client, GatewayIntentBits, GuildMember, Partials, REST, Routes, SlashCo
 import { getLogger } from './logger';
 import { config } from './config';
 import { getChannelEntries } from '../modules/database';
+import { buildChannelChoices } from './channels';
 import { handleStreamCommand, handleStopCommand, handleListCommand, handleRefreshCommand, handleProgrammeCommand, handleSearchCommand } from '../modules/commands';
 
 const logger = getLogger();
@@ -85,19 +86,11 @@ client.on('interactionCreate', async interaction => {
         if (commandName === 'stream' || commandName === 'programme') {
             const current = options.getFocused() ?? '';
             const channelEntries = await getChannelEntries();
-            const choices = channelEntries
-                .map(entry => entry.tvg_name)
-                .filter((name): name is string => name !== undefined && name.toLowerCase().includes(current.toLowerCase()));
 
             // Discord allows at most 25 autocomplete choices and caps names at
             // 100 characters. Always respond (even when empty) so the client
             // does not time out waiting for the interaction to be acknowledged.
-            await interaction.respond(
-                choices.slice(0, 25).map(choice => ({
-                    name: choice.slice(0, 100),
-                    value: choice.slice(0, 100)
-                }))
-            );
+            await interaction.respond(buildChannelChoices(channelEntries, current));
         }
     }
 });

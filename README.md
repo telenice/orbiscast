@@ -214,7 +214,7 @@ If the GPU device is missing, the bot logs an error and falls back to CPU encodi
 | `/search <query>` | Search the TV guide (e.g. `liverpool`) for what's on, when and on which channels, with buttons to watch. |
 | `/refresh <type>` | Reload `all` data, just the `channels`, or just the `programme` guide. |
 
-Channel names autocomplete in `/stream` and `/programme`. Discord shows at most 25 suggestions, so keep typing to narrow them down, or use `/channels` to browse everything.
+Channel names autocomplete in `/stream` and `/programme`, shown as `Channel | Category`. You can type part of a category (e.g. `sports`) as well as a channel name. Discord shows at most 25 suggestions, so keep typing to narrow them down, or use `/channels` to browse everything.
 
 `/search` requires every word to match, ignoring capitals, accents and punctuation. Programmes with the words in their title are listed first, ordered by start time with live ones at the top, followed by ones that only mention them in the description.
 
