@@ -1,0 +1,151 @@
+name: Release
+
+# On every push to master:
+#   1. run the typecheck and tests (ci.yml)
+#   2. build the Docker image and push it to GitHub Container Registry
+#      (ghcr.io/<owner>/<repo>) as :latest and :sha-<commit>
+#   3. if package.json has a version that hasn't been released yet, tag the
+#      image with that version too and publish a GitHub release with the
+#      source package attached
+# To cut a new release, bump "version" in package.json and push to master.
+
+on:
+    push:
+        branches:
+            - master
+    workflow_dispatch:
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    test:
+        name: Typecheck & test
+        uses: ./.github/workflows/ci.yml
+
+    version:
+        name: Check version
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        outputs:
+            version: ${{ steps.check.outputs.version }}
+            is_new: ${{ steps.check.outputs.is_new }}
+        steps:
+            - name: Check out the repo
+              uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+                  fetch-tags: true
+
+            - name: Read version and check for an existing release tag
+              id: check
+              run: |
+                  version="$(node -p "require('./package.json').version")"
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+                  if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+                      echo "is_new=false" >> "$GITHUB_OUTPUT"
+                      echo "Version $version is already released; publishing the image only."
+                  else
+                      echo "is_new=true" >> "$GITHUB_OUTPUT"
+                      echo "Version $version is new; it will be released."
+                  fi
+
+    docker:
+        name: Build & push image to GHCR
+        needs: [test, version]
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - name: Check out the repo
+              uses: actions/checkout@v7
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v4
+
+            - name: Log in to GitHub Container Registry
+              uses: docker/login-action@v4
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Extract metadata (tags, labels) for Docker
+              id: meta
+              uses: docker/metadata-action@v6
+              with:
+                  images: ghcr.io/${{ github.repository }}
+                  tags: |
+                      type=raw,value=latest
+                      type=sha,format=short
+                      type=raw,value=${{ needs.version.outputs.version }},enable=${{ needs.version.outputs.is_new == 'true' }}
+                  labels: |
+                      org.opencontainers.image.title=OrbisCast
+                      org.opencontainers.image.description=A Discord IPTV streaming bot.
+                      org.opencontainers.image.version=${{ needs.version.outputs.version }}
+
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v7
+              with:
+                  context: .
+                  file: ./Dockerfile
+                  platforms: linux/amd64
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
+    release:
+        name: Publish GitHub release
+        needs: [version, docker]
+        if: needs.version.outputs.is_new == 'true'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        env:
+            VERSION: ${{ needs.version.outputs.version }}
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        steps:
+            - name: Check out the repo
+              uses: actions/checkout@v7
+
+            - name: Build the source package
+              run: |
+                  mkdir -p release
+                  name="orbiscast-$VERSION"
+                  git archive --format=tar.gz --prefix="$name/" -o "release/$name.tar.gz" HEAD
+                  git archive --format=zip --prefix="$name/" -o "release/$name.zip" HEAD
+                  (cd release && sha256sum "$name.tar.gz" "$name.zip" > SHA256SUMS)
+                  cat release/SHA256SUMS
+
+            - name: Write release notes header
+              run: |
+                  image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+                  {
+                      echo "## Docker image"
+                      echo
+                      echo '```bash'
+                      echo "docker pull $image:$VERSION"
+                      echo '```'
+                      echo
+                      echo "Or use \`$image:latest\` in your \`compose.yml\`."
+                      echo
+                      echo "## Source package"
+                      echo
+                      echo "\`orbiscast-$VERSION.tar.gz\` / \`.zip\` contain the source at this release; checksums are in \`SHA256SUMS\`."
+                  } > release/notes.md
+
+            - name: Create the release
+              run: |
+                  gh release create "$VERSION" \
+                      --target "$GITHUB_SHA" \
+                      --title "OrbisCast $VERSION" \
+                      --notes-file release/notes.md \
+                      --generate-notes \
+                      "release/orbiscast-$VERSION.tar.gz" \
+                      "release/orbiscast-$VERSION.zip" \
+                      release/SHA256SUMS

@@ -1,10 +1,11 @@
 name: CI
 
 on:
-    push:
-        branches:
-            - master
+    # Pushes to master run this through the Release workflow, so it isn't
+    # triggered twice.
     pull_request:
+    workflow_call:
+    workflow_dispatch:
 
 jobs:
     typecheck_and_test:

@@ -222,7 +222,11 @@ See `.env.example` and the README table. Required: `DISCORD_BOT_TOKEN`,
 ## Pull requests
 
 - Branch from `master`, keep commits scoped and descriptive.
-- CI (`.github/workflows/ci.yml`) runs typecheck and tests on pushes/PRs.
-- `.github/workflows/master.yml` builds and publishes the Docker image
-  (`zbejas/orbiscast:latest` plus the release tag) when a GitHub release is
-  published.
+- `.github/workflows/ci.yml` runs typecheck and tests on pull requests, and is
+  reused (`workflow_call`) by the release workflow.
+- `.github/workflows/release.yml` runs on every push to `master`: tests, then
+  builds the image and pushes it to `ghcr.io/<owner>/<repo>` (`latest`,
+  `sha-<commit>`). If `package.json`'s `version` has no matching git tag yet,
+  it also tags the image with the version and creates a GitHub release (tag =
+  bare version, e.g. `1.4.0`) with the source package attached. Bump the
+  version to release.

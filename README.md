@@ -73,10 +73,18 @@ docker compose up -d --build
 
 Follow the logs with `docker compose logs -f`. To update later, run `git pull` and then `docker compose up -d --build` again.
 
+**Prefer a prebuilt image?** Every change to `master` is published to the GitHub Container Registry. In `compose.yml`, replace the `build: .` and `image:` lines with:
+
+```yaml
+    image: ghcr.io/telenice/orbiscast:latest
+```
+
+Then update with `docker compose pull && docker compose up -d`. Pin a release instead of `latest` (e.g. `ghcr.io/telenice/orbiscast:1.4.0`) if you'd rather update deliberately.
+
 App data (the channel and guide database, and logs) is stored in `./data`. The download cache lives in RAM (`/dev/shm`) by default, or on disk if you set `RAM_CACHE=false`.
 
 > [!NOTE]
-> The official `zbejas/orbiscast` image on Docker Hub does not include this fork's features. Build from this repository, as above.
+> The official `zbejas/orbiscast` image on Docker Hub does not include this fork's features. Use this repository's image or build from source, as above.
 
 ### Or run it manually
 
@@ -241,6 +249,10 @@ npm run test:watch  # re-run tests on change
 ```
 
 See [AGENTS.md](AGENTS.md) for an architecture overview.
+
+### Releases
+
+Pull requests run the typecheck and tests. Every push to `master` runs them too, and if they pass, builds the Docker image and publishes it to `ghcr.io/telenice/orbiscast` as `latest` and `sha-<commit>`. To cut a release, bump `version` in `package.json` and push to `master`. The image is then also tagged with that version, and a [GitHub release](https://github.com/telenice/orbiscast/releases) is created with the source package (`.tar.gz`, `.zip` and checksums) and a changelog.
 
 ## Credits
 
