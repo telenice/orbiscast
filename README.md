@@ -20,6 +20,7 @@
 - **TV guide (EPG):** see what's on now and next for any channel, from an XMLTV guide or your Xtream provider's own guide. Large guides are filtered to your channels as they download.
 - **Guide search:** `/search liverpool` lists upcoming matches with their times (in each viewer's own time zone), which channels show them, and a button to start watching.
 - **Channel browsing:** paginated channel lists with buttons, and autocomplete in commands.
+- **HDR support:** HDR channels are detected and tone mapped so they don't look washed out.
 - **Smooth playback options:** re-encode streams into a Discord-friendly format, optionally capping resolution and frame rate (e.g. turn 4K 50 fps into 1080p 30 fps), or pass streams through untouched.
 - **GPU transcoding:** encode on an Intel or AMD GPU (VAAPI) instead of the CPU.
 - **Seamless channel changes:** switching channel swaps the picture inside the same Go Live stream, so viewers stay watching instead of having to rejoin.
@@ -171,6 +172,7 @@ The guide is read as it downloads, and only listings for your channels are kept,
 | `BITRATE_VIDEO_MAX` | Maximum video bitrate in kbps when transcoding. | `7500` |
 | `STREAM_RESOLUTION` | Maximum output height when transcoding, e.g. `1080` or `720`. Unset keeps the source. | *(source)* |
 | `STREAM_FPS` | Maximum output frame rate when transcoding, e.g. `30`. Unset keeps the source. | *(source)* |
+| `HDR_TONEMAP` | How HDR channels are converted so they don't look washed out: `mobius`, `hable`, `reinhard`, or `off`. Transcoding only. | `mobius` |
 | `ENCODER` | `software` (CPU) or `vaapi` (Intel/AMD GPU). | `software` |
 | `VAAPI_DEVICE` | GPU device used with `ENCODER=vaapi`. | `/dev/dri/renderD128` |
 | `HARDWARE_DECODING` | Decode the source on the GPU as well. | `true` with `vaapi`, else `false` |
@@ -181,6 +183,8 @@ The guide is read as it downloads, and only listings for your channels are kept,
 **Transcoding or passthrough?** Passthrough (`DISABLE_TRANSCODE=true`) uses almost no CPU, but sends whatever your provider broadcasts, which can include 4K at 50 fps and video features Discord handles poorly. Transcoding produces a stream built for Discord, with a steady bitrate, frequent keyframes and no B-frames. It is the most reliable way to get smooth playback.
 
 **Resolution and frame-rate caps** only ever scale down. With `STREAM_RESOLUTION=1080` and `STREAM_FPS=30`, a 2160p 50 fps channel becomes 1080p 30 fps, while a 720p 25 fps channel stays as it is. For 50 fps sources, `STREAM_FPS=25` divides more evenly than `30`.
+
+**HDR channels.** Discord can't show HDR, so HDR channels (HDR10 or HLG) look flat and washed out unless they're converted. When transcoding, OrbisCast detects HDR automatically and tone maps it to normal video. The first time an HDR channel plays, it restarts once after a second or two with tone mapping on, and is remembered after that. Tone mapping runs on the CPU, so for 4K or 50 fps HDR channels it's worth setting `STREAM_RESOLUTION=1080` and `STREAM_FPS=25`. In passthrough mode HDR can't be fixed; the bot logs a hint instead.
 
 **GPU transcoding.** To encode on an Intel or AMD GPU, set `ENCODER=vaapi` and pass the GPU into the container in `compose.yml`:
 

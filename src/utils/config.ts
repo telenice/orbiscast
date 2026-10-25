@@ -2,8 +2,8 @@ import { existsSync } from 'fs';
 import { getLogger } from './logger';
 import { buildXtreamXmltvUrl, parseCategoryFilter } from '../modules/iptv/parsers/xtream-parser';
 import type { XtreamOutput } from '../modules/iptv/parsers/xtream-parser';
-import { parseFrameRate, parseResolution } from '../modules/streaming/video-options';
-import type { EncoderType } from '../modules/streaming/video-options';
+import { parseFrameRate, parseResolution, parseToneMapping } from '../modules/streaming/video-options';
+import type { EncoderType, ToneMapping } from '../modules/streaming/video-options';
 
 const logger = getLogger();
 
@@ -35,6 +35,7 @@ class Config {
     HARDWARE_DECODING: boolean;
     STREAM_RESOLUTION: number;
     STREAM_FPS: number;
+    HDR_TONEMAP: ToneMapping;
 
     constructor() {
         logger.info('Loading environment variables');
@@ -109,6 +110,8 @@ class Config {
         // Unset (or 0) keeps the source resolution / frame rate.
         this.STREAM_RESOLUTION = parseResolution(env.STREAM_RESOLUTION);
         this.STREAM_FPS = parseFrameRate(env.STREAM_FPS);
+        // Convert HDR channels to SDR so they don't look washed out (transcoding only).
+        this.HDR_TONEMAP = parseToneMapping(env.HDR_TONEMAP);
         if (env.STREAM_RESOLUTION?.trim() && !this.STREAM_RESOLUTION) {
             logger.warn(`Invalid STREAM_RESOLUTION "${env.STREAM_RESOLUTION}", keeping source resolution`);
         }

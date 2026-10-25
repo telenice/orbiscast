@@ -5,7 +5,7 @@ import type { Readable } from 'stream';
 import { LiveSession, loadStreamInternals } from './session';
 import { existsSync } from 'fs';
 import { buildCapFilters, createEncoder, withVideoFilters } from './video';
-import { buildPlaybackPlans, describePlaybackPlan, isUsefulFfmpegLine } from './video-options';
+import { buildPlaybackPlans, buildToneMapFilters, describePlaybackPlan, isHdrStreamLine, isUsefulFfmpegLine } from './video-options';
 import type { PlaybackPlan } from './video-options';
 import type { EncoderType } from './video';
 import { getLogger } from '../../utils/logger';
@@ -292,7 +292,11 @@ const workingPlanByUrl = new Map<string, number>();
 /** A stream that fails within this window is treated as "failed to start". */
 const START_FAILURE_WINDOW_MS = 20_000;
 
-type PlayOutcome = 'finished' | 'stopped' | 'failed-to-start' | 'failed';
+type PlayOutcome = 'finished' | 'stopped' | 'failed-to-start' | 'failed' | 'restart';
+
+/** Channels (by stream URL) detected as HDR, which get tone mapping. */
+const hdrUrls = new Set<string>();
+let hdrPassthroughHintLogged = false;
 
 /**
  * Starts streaming a channel to the voice channel the streamer is in. If the
@@ -322,6 +326,10 @@ export async function startStreaming(channelEntry: ChannelEntry) {
         const plan = plans[index]!;
         const outcome = await playOnce(channelEntry, plan, plans.length > 1);
 
+        if (outcome === 'restart') {
+            index--; // retry the same setup, now with HDR tone mapping
+            continue;
+        }
         if (outcome === 'failed-to-start' && index < plans.length - 1) {
             logger.warn(`${channelEntry.tvg_name} failed to start with ${describePlaybackPlan(plan)}; retrying with ${describePlaybackPlan(plans[index + 1]!)}`);
             continue;
@@ -349,6 +357,7 @@ async function playOnce(channelEntry: ChannelEntry, plan: PlaybackPlan, logPlan:
     let signal = abortController.signal;
     const ffmpegLog: string[] = [];
     const startedAt = Date.now();
+    let restartForHdr = false;
 
     try {
         // Stop the previous source but keep the Go Live session open, so
@@ -362,10 +371,17 @@ async function playOnce(channelEntry: ChannelEntry, plan: PlaybackPlan, logPlan:
         const planNote = logPlan && !config.DISABLE_TRANSCODE ? ` with ${describePlaybackPlan(plan)}` : '';
         logger.info(`Attempting to stream: ${channelEntry.tvg_name} (${redactUrl(channelEntry.url)})${planNote}`);
 
+        const toneMapping = !config.DISABLE_TRANSCODE && config.HDR_TONEMAP !== 'off' ? config.HDR_TONEMAP : null;
         const encoder = withVideoFilters(
             createEncoder(plan.encoder === 'software' ? 'software' : activeEncoder(), config.VAAPI_DEVICE),
-            buildCapFilters(config.STREAM_RESOLUTION, config.STREAM_FPS)
+            [
+                ...buildCapFilters(config.STREAM_RESOLUTION, config.STREAM_FPS),
+                ...(toneMapping && hdrUrls.has(channelEntry.url) ? buildToneMapFilters(toneMapping) : []),
+            ]
         );
+        if (toneMapping && hdrUrls.has(channelEntry.url)) {
+            logger.info(`Tone mapping HDR to SDR (${toneMapping}) for ${channelEntry.tvg_name}`);
+        }
 
         const { command, output, promise } = prepareStream(channelEntry.url, {
             noTranscoding: config.DISABLE_TRANSCODE,
@@ -386,6 +402,19 @@ async function playOnce(channelEntry: ChannelEntry, plan: PlaybackPlan, logPlan:
         // Keep FFmpeg's recent output: when a stream fails, the player usually
         // notices first and cancels FFmpeg, which would otherwise hide the real cause.
         command.on('stderr', (line: string) => {
+            if (!hdrUrls.has(channelEntry.url) && isHdrStreamLine(line)) {
+                if (toneMapping) {
+                    // HDR shows washed out unless tone mapped. The filters are set when
+                    // FFmpeg starts, so restart this channel once with them added.
+                    hdrUrls.add(channelEntry.url);
+                    restartForHdr = true;
+                    logger.info(`${channelEntry.tvg_name} is HDR; restarting it with tone mapping`);
+                    if (abortController.signal === signal) abortController.abort();
+                } else if (config.DISABLE_TRANSCODE && !hdrPassthroughHintLogged) {
+                    hdrPassthroughHintLogged = true;
+                    logger.warn(`${channelEntry.tvg_name} is HDR and will look washed out; set DISABLE_TRANSCODE=false to tone map HDR channels`);
+                }
+            }
             if (isUsefulFfmpegLine(line)) {
                 ffmpegLog.push(line);
                 if (ffmpegLog.length > FFMPEG_LOG_LINES) ffmpegLog.shift();
@@ -415,12 +444,13 @@ async function playOnce(channelEntry: ChannelEntry, plan: PlaybackPlan, logPlan:
             // Always cleanup monitoring regardless of success or failure
             cleanupMonitoring();
         }
+        if (restartForHdr) return 'restart';
         return signal.aborted ? 'stopped' : 'finished';
     } catch (error) {
         // A cancelled stream is expected during stop; the caller is already
         // cleaning up, so only log/handle genuine failures.
         if (signal.aborted) {
-            return 'stopped';
+            return restartForHdr ? 'restart' : 'stopped';
         }
         logger.error(`Error starting stream: ${redactUrl(String(error))}`);
         if (ffmpegLog.length > 0) {

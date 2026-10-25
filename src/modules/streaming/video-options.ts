@@ -39,12 +39,13 @@ export function parseFrameRate(value: string | undefined): number {
  */
 export function buildCapFilters(maxHeight: number, maxFps: number): string[] {
     const filters: string[] = [];
+    // Drop frames first so later (more expensive) filters process fewer of them.
+    if (maxFps > 0) {
+        filters.push(`fps='min(source_fps,${maxFps})'`);
+    }
     if (maxHeight > 0) {
         // -2 keeps the aspect ratio with an even width; min() prevents upscaling.
         filters.push(`scale=-2:'min(ih,${Math.floor(maxHeight)})'`);
-    }
-    if (maxFps > 0) {
-        filters.push(`fps='min(source_fps,${maxFps})'`);
     }
     return filters;
 }
@@ -99,4 +100,49 @@ export function buildPlaybackPlans(options: { transcoding: boolean; encoder: Enc
 export function describePlaybackPlan(plan: PlaybackPlan): string {
     const encoding = plan.encoder === 'software' ? 'CPU encoding' : `GPU (${plan.encoder}) encoding`;
     return `${plan.hardwareDecoding ? 'GPU' : 'CPU'} decoding + ${encoding}`;
+}
+
+export type ToneMapping = 'mobius' | 'hable' | 'reinhard' | 'off';
+
+/**
+ * Parses the HDR tone-mapping setting.
+ *
+ * @param value - `mobius` (default), `hable`, `reinhard` or `off`
+ * @returns The tone-mapping curve, or `off`
+ */
+export function parseToneMapping(value: string | undefined): ToneMapping {
+    const v = (value || '').trim().toLowerCase();
+    if (v === 'off' || v === 'false' || v === 'none') return 'off';
+    if (v === 'hable' || v === 'reinhard' || v === 'mobius') return v;
+    return 'mobius';
+}
+
+/**
+ * True for an FFmpeg stream-info line describing HDR video: PQ (HDR10 /
+ * `smpte2084`) or HLG (`arib-std-b67`), e.g.
+ * `Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160`.
+ *
+ * @param line - One line of FFmpeg stderr
+ */
+export function isHdrStreamLine(line: string): boolean {
+    return /Stream #\d+:\d+.*\bVideo:.*\b(smpte2084|arib-std-b67)\b/.test(line);
+}
+
+/**
+ * Filters that convert HDR (PQ or HLG, BT.2020) to standard dynamic range
+ * BT.709, so HDR channels don't look washed out in Discord. Requires FFmpeg
+ * with zscale (libzimg). Only apply to HDR sources; SDR video would be altered.
+ *
+ * @param curve - Tone-mapping curve
+ * @returns Filters to run before the encoder
+ */
+export function buildToneMapFilters(curve: Exclude<ToneMapping, 'off'>): string[] {
+    return [
+        'zscale=t=linear:npl=100',
+        'format=gbrpf32le',
+        'zscale=p=bt709',
+        `tonemap=tonemap=${curve}:desat=0`,
+        'zscale=t=bt709:m=bt709:r=tv',
+        'format=yuv420p',
+    ];
 }
