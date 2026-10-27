@@ -148,8 +148,9 @@ Configure `PLAYLIST`, the three `XTREAM_*` credentials, or both. If both are set
 | `XTREAM_PASSWORD` | Xtream password. | |
 | `XTREAM_CATEGORIES` | Comma-separated category names or IDs to keep, e.g. `UK \| Sports,12`. Leave empty for all. | *(all)* |
 | `XTREAM_OUTPUT` | Stream format: `ts` (MPEG-TS) or `m3u8` (HLS). | `ts` |
+| `EXCLUDE_CATEGORIES` | Comma-separated category names to hide from `/stream`, `/search`, `/list` and autocomplete. Works with playlists and Xtream. Case-insensitive; `*` is a wildcard, e.g. `*4K*,UK \| Adult`. | *(none)* |
 
-Xtream accounts often contain thousands of channels; `XTREAM_CATEGORIES` keeps the list manageable and makes guide loading much lighter. On startup the bot logs your Xtream account status, expiry date and connection limit. Credentials are masked in all logs.
+Xtream accounts often contain thousands of channels; `XTREAM_CATEGORIES` keeps the list manageable and makes guide loading much lighter. To drop a few categories instead (for example every 4K category), use `EXCLUDE_CATEGORIES="*4K*"`. On startup the bot logs your Xtream account status, expiry date and connection limit. Credentials are masked in all logs.
 
 ### TV guide
 

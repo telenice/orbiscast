@@ -134,6 +134,10 @@ ordering: if you add a module that reads `process.env` at import time, import
   channels and the `XMLTV_DAYS` window, and tolerates malformed XML. Never use
   `Math.min(...arr)`/`push(...arr)` on guide-sized arrays (stack overflow).
   `utils.ts#parseDate` handles XMLTV timestamps (`YYYYMMDDHHMMSS +/-HHMM`) as UTC.
+- `fetchSourceChannels` drops channels whose category matches
+  `EXCLUDE_CATEGORIES` (`categories.ts`, pure: case-insensitive names with `*`
+  wildcards) before they reach the database, so excluded channels disappear
+  from every command and their guide data is not fetched.
 - `schedulers.ts` refreshes on `REFRESH_IPTV` (minutes).
 
 ### Streaming (`src/modules/streaming/index.ts`)
@@ -194,7 +198,7 @@ ordering: if you add a module that reads `process.env` at import time, import
 See `.env.example` and the README table. Required: `DISCORD_BOT_TOKEN`,
 `DISCORD_USER_TOKEN`, `GUILD`, plus either `PLAYLIST` or all of `XTREAM_HOST`,
 `XTREAM_USERNAME`, `XTREAM_PASSWORD`. Optional: `XMLTV`, `XTREAM_OUTPUT`,
-`XTREAM_CATEGORIES`, `XTREAM_EPG`, `XMLTV_DAYS`,
+`XTREAM_CATEGORIES`, `EXCLUDE_CATEGORIES`, `XTREAM_EPG`, `XMLTV_DAYS`,
 `REFRESH_IPTV`, `RAM_CACHE`, `CACHE_DIR`, `DEBUG`, `DEFAULT_STREAM_TIMEOUT`,
 `TZ`, `MINIMIZE_LATENCY`, `BITRATE_VIDEO`, `BITRATE_VIDEO_MAX`,
 `DISABLE_TRANSCODE`, `ENCODER`, `VAAPI_DEVICE`, `HARDWARE_DECODING`,

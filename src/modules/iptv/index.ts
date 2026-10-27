@@ -9,6 +9,7 @@ import { isProgrammeDataStale } from './utils';
 import { scheduleIPTVRefresh } from './schedulers';
 import { fetchXtreamChannels } from './xtream';
 import { buildGuideFilter, mergeChannelLists } from './merge';
+import { excludeCategories } from './categories';
 import type { ChannelEntry } from '../../interfaces/iptv';
 
 const logger = getLogger();
@@ -161,6 +162,8 @@ export async function syncPlaylistChannels(force = false): Promise<void> {
 
 /**
  * Retrieves playable channels from every configured source (Xtream API and/or M3U playlist).
+ * Channels in an `EXCLUDE_CATEGORIES` category are dropped, so they never reach
+ * the database (and so never show up in /stream, /search, /list or autocomplete).
  *
  * @param force - Force download even if cache exists
  * @returns Channels with stream URLs (empty if every source failed)
@@ -180,7 +183,12 @@ export async function fetchSourceChannels(force = false): Promise<ChannelEntry[]
         for (const ch of await fetchPlaylistChannels(force)) sourceChannels.push(ch);
     }
 
-    return sourceChannels;
+    if (config.EXCLUDE_CATEGORIES.length === 0) {
+        return sourceChannels;
+    }
+    const kept = excludeCategories(sourceChannels, config.EXCLUDE_CATEGORIES);
+    logger.info(`Category exclusion removed ${sourceChannels.length - kept.length} of ${sourceChannels.length} channels`);
+    return kept;
 }
 
 /**

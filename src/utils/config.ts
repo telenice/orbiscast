@@ -2,6 +2,7 @@ import { existsSync } from 'fs';
 import { getLogger } from './logger';
 import { buildXtreamXmltvUrl, parseCategoryFilter } from '../modules/iptv/parsers/xtream-parser';
 import type { XtreamOutput } from '../modules/iptv/parsers/xtream-parser';
+import { parseCategoryPatterns } from '../modules/iptv/categories';
 import { parseFrameRate, parseResolution, parseToneMapping } from '../modules/streaming/video-options';
 import type { EncoderType, ToneMapping } from '../modules/streaming/video-options';
 
@@ -16,6 +17,7 @@ class Config {
     XTREAM_OUTPUT: XtreamOutput;
     XTREAM_CATEGORIES: string[];
     XTREAM_EPG: boolean;
+    EXCLUDE_CATEGORIES: RegExp[];
     REFRESH_IPTV: number;
     XMLTV_DAYS: number;
     DEFAULT_STREAM_TIMEOUT: number;
@@ -52,6 +54,8 @@ class Config {
         this.XTREAM_OUTPUT = env.XTREAM_OUTPUT?.trim().toLowerCase() === 'm3u8' ? 'm3u8' : 'ts';
         this.XTREAM_CATEGORIES = parseCategoryFilter(env.XTREAM_CATEGORIES);
         this.XTREAM_EPG = env.XTREAM_EPG?.trim().toLowerCase() !== 'false';
+        // Categories to hide from every source (names, `*` wildcards), e.g. "*4K*"
+        this.EXCLUDE_CATEGORIES = parseCategoryPatterns(env.EXCLUDE_CATEGORIES);
 
         // Use the provider's built-in EPG when no XMLTV URL is given
         if (this.XTREAM_ENABLED && !this.XMLTV && this.XTREAM_EPG) {
